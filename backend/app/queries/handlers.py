@@ -539,15 +539,17 @@ class QueryHandler:
         # Time-based scoring
         if txn.transaction_datetime:
             hour = txn.transaction_datetime.hour
-            if 11 <= hour <= 14:  # Lunch hours
+            minute = txn.transaction_datetime.minute
+            # Lunch hours: 11:00am - 2:30pm
+            if (11 <= hour < 14) or (hour == 14 and minute <= 30):
                 confidence += 30
-                reasons.append(f"Lunch time ({hour}:{txn.transaction_datetime.minute:02d})")
-            elif 8 <= hour <= 10 or 15 <= hour <= 16:  # Near lunch hours
+                reasons.append(f"Lunch time ({hour}:{minute:02d})")
+            elif 8 <= hour <= 10 or (hour == 15 and minute <= 30) or (hour == 14 and minute > 30):
                 confidence += 10
-                reasons.append(f"Near lunch time ({hour}:{txn.transaction_datetime.minute:02d})")
+                reasons.append(f"Near lunch time ({hour}:{minute:02d})")
             else:
                 confidence -= 20
-                reasons.append(f"Outside lunch hours ({hour}:{txn.transaction_datetime.minute:02d})")
+                reasons.append(f"Outside lunch hours ({hour}:{minute:02d})")
         else:
             reasons.append("No time data available")
         

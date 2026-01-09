@@ -153,9 +153,12 @@ def inject_restaurant_transactions(db: Session, account: Account, start_date: da
         merchant = random.choice(lunch_merchants)
         amount = Decimal(random.uniform(8, 18)).quantize(Decimal('0.01'))  # Lunch is typically cheaper
         
-        # Random time between 11am-2pm
+        # Random time between 11am-2:30pm
         lunch_hour = random.randint(11, 14)
-        lunch_minute = random.randint(0, 59)
+        if lunch_hour == 14:
+            lunch_minute = random.randint(0, 30)  # Only up to 2:30pm
+        else:
+            lunch_minute = random.randint(0, 59)
         transaction_time = datetime.combine(current_date, datetime.min.time().replace(hour=lunch_hour, minute=lunch_minute))
         
         txn = create_test_transaction(

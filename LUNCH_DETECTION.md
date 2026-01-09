@@ -9,8 +9,8 @@ The lunch detection system uses a multi-factor confidence scoring approach to ac
 Each transaction is scored based on multiple factors:
 
 #### Time-Based Scoring
-- **+30 points**: Transaction between 11am-2pm (lunch hours)
-- **+10 points**: Transaction between 8-10am or 3-4pm (near lunch hours)
+- **+30 points**: Transaction between 11am-2:30pm (lunch hours)
+- **+10 points**: Transaction between 8-10am or 2:31-3:30pm (near lunch hours)
 - **-20 points**: Transaction outside lunch hours
 
 #### Merchant-Based Scoring
@@ -44,7 +44,7 @@ Each transaction is scored based on multiple factors:
 
 **Solution**:
 - **Amount threshold**: Only includes grocery store transactions ≤$15
-- **Time bonus**: If during lunch hours, higher confidence
+- **Time bonus**: If during lunch hours (11am-2:30pm), higher confidence
 - **Exclusion**: Large grocery purchases automatically excluded
 
 **Example**:
@@ -81,6 +81,7 @@ Each transaction shows why it received its confidence score:
 
 **High Confidence (100%)**:
 - "Lunch time (12:48), Known lunch merchant, Typical lunch amount ($12.43)"
+- "Lunch time (14:25), Grocery store, small amount ($10.46)" (2:25pm is still lunch)
 
 **Medium Confidence (85%)**:
 - "No time data available, Known lunch merchant, Typical lunch amount ($24.37)"
