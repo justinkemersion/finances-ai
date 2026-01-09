@@ -4,6 +4,8 @@ import click
 import os
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
+from rich.markdown import Markdown
 from rich import box
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
@@ -746,6 +748,118 @@ def inject_test_data(account_id: str, months: int, no_income: bool):
     except Exception as e:
         console.print(f"[bold red]❌ Error injecting test data:[/bold red] {str(e)}")
         db.rollback()
+    finally:
+        db.close()
+
+
+@cli.command()
+@click.argument("query", required=False)
+@click.option("--provider", help="AI provider to use (openai, anthropic)")
+@click.option("--api-key", help="API key (overrides auto-detection)")
+@click.option("--model", help="Model to use (e.g., gpt-4o-mini, claude-3-5-sonnet-20241022)")
+@click.option("--full-data", is_flag=True, help="Include full database export (use with caution)")
+@click.option("--list-providers", is_flag=True, help="List available providers and exit")
+def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, list_providers: bool):
+    """Query AI with your financial data for analysis and insights"""
+    from ..ai import AIClient, AIProvider, AIConfig
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    
+    db = SessionLocal()
+    
+    try:
+        # List providers if requested
+        if list_providers:
+            detected = AIConfig.detect_api_keys()
+            if not detected:
+                console.print("[bold yellow]No AI providers found.[/bold yellow]")
+                console.print("\n[bold]To set up AI providers:[/bold]")
+                console.print("1. Add to .env or .env.local:")
+                console.print("   OPENAI_API_KEY=your_key_here")
+                console.print("   ANTHROPIC_API_KEY=your_key_here")
+                console.print("2. Or export in shell config (.bashrc, .zshrc, etc.):")
+                console.print("   export OPENAI_API_KEY=your_key_here")
+                return
+            
+            table = Table(title="Available AI Providers", box=box.ROUNDED)
+            table.add_column("Provider", style="cyan")
+            table.add_column("Source", style="yellow")
+            table.add_column("Key Preview", style="dim")
+            
+            for provider_enum, sources in detected.items():
+                for source, key in sources:
+                    key_preview = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else key[:8] + "..."
+                    table.add_row(
+                        provider_enum.value.title(),
+                        source,
+                        key_preview
+                    )
+            
+            console.print(table)
+            return
+        
+        # Require query if not listing providers
+        if not query:
+            console.print("[bold red]❌ Error: Query is required (or use --list-providers)[/bold red]")
+            console.print("\n[bold]Usage:[/bold] python -m backend.app ai \"your question here\"")
+            console.print("[bold]Example:[/bold] python -m backend.app ai \"where can I focus on budgeting to make quick wins with savings?\"")
+            return
+        
+        # Determine provider
+        provider_enum = None
+        if provider:
+            try:
+                provider_enum = AIProvider(provider.lower())
+            except ValueError:
+                console.print(f"[bold red]❌ Unknown provider: {provider}[/bold red]")
+                console.print(f"[bold]Available providers:[/bold] {', '.join([p.value for p in AIProvider])}")
+                return
+        
+        # Initialize AI client
+        try:
+            ai_client = AIClient(
+                db=db,
+                provider=provider_enum,
+                api_key=api_key
+            )
+        except ValueError as e:
+            console.print(f"[bold red]❌ {str(e)}[/bold red]")
+            console.print("\n[bold]Run with --list-providers to see available providers[/bold]")
+            return
+        
+        # Query AI
+        console.print(f"[bold blue]🤖 Querying {ai_client.provider.value.title()}...[/bold blue]")
+        console.print(f"[dim]Query: {query}[/dim]\n")
+        
+        result = ai_client.query(query, include_full_data=full_data)
+        
+        if "error" in result:
+            console.print(f"[bold red]❌ Error:[/bold red] {result['error']}")
+            return
+        
+        # Display response
+        response = result.get("response", "")
+        data_info = result.get("data_included", {})
+        
+        # Format response as markdown
+        markdown = Markdown(response)
+        panel = Panel(
+            markdown,
+            title=f"[bold green]AI Response ({ai_client.provider.value.title()})[/bold green]",
+            border_style="green"
+        )
+        console.print(panel)
+        
+        # Show data context info
+        if data_info:
+            console.print(f"\n[dim]Data included: {', '.join(data_info.get('keys', []))}[/dim]")
+            if data_info.get('transaction_count', 0) > 0:
+                console.print(f"[dim]Transactions: {data_info['transaction_count']}[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Error:[/bold red] {str(e)}")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
     finally:
         db.close()
 
