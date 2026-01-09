@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.prompt import Prompt
 from rich import box
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
@@ -884,13 +885,76 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
                 console.print(f"[bold red]❌ Unknown provider: {provider}[/bold red]")
                 console.print(f"[bold]Available providers:[/bold] {', '.join([p.value for p in AIProvider])}")
                 return
+        else:
+            # Auto-detect available providers
+            detected = AIConfig.detect_api_keys()
+            available_providers = list(detected.keys())
+            
+            if not available_providers:
+                console.print("[bold red]❌ No AI providers found.[/bold red]")
+                console.print("\n[bold]To set up AI providers:[/bold]")
+                console.print("1. Add to .env or .env.local:")
+                console.print("   OPENAI_API_KEY=your_key_here")
+                console.print("   GEMINI_API_KEY=your_key_here")
+                console.print("2. Or export in shell config (.bashrc, .zshrc, etc.):")
+                console.print("   export OPENAI_API_KEY=your_key_here")
+                return
+            
+            # If only one provider, use it automatically
+            if len(available_providers) == 1:
+                provider_enum = available_providers[0]
+                console.print(f"[dim]Using {provider_enum.value.title()} (only provider available)[/dim]\n")
+            else:
+                # Multiple providers - show interactive selection
+                console.print("[bold cyan]🤖 Multiple AI providers detected. Choose one:[/bold cyan]\n")
+                
+                # Build selection table
+                selection_table = Table(show_header=False, box=box.SIMPLE)
+                selection_table.add_column("Choice", style="cyan", width=8)
+                selection_table.add_column("Provider", style="yellow", width=15)
+                selection_table.add_column("Source", style="dim", width=30)
+                
+                provider_map = {}
+                for idx, provider_option in enumerate(available_providers, 1):
+                    # Get all unique sources for this provider
+                    sources = detected[provider_option]
+                    # Count unique sources
+                    unique_sources = set(s[0] for s in sources)
+                    source_display = f"{len(unique_sources)} source(s)" if len(unique_sources) > 1 else sources[0][0] if sources else "unknown"
+                    provider_map[str(idx)] = provider_option
+                    
+                    selection_table.add_row(
+                        str(idx),
+                        provider_option.value.title(),
+                        source_display
+                    )
+                
+                console.print(selection_table)
+                console.print()
+                
+                # Get user selection
+                while True:
+                    choice = Prompt.ask(
+                        f"[bold]Select provider[/bold] [cyan](1-{len(available_providers)})[/cyan]",
+                        default="1"
+                    )
+                    
+                    if choice in provider_map:
+                        provider_enum = provider_map[choice]
+                        break
+                    else:
+                        console.print(f"[bold red]Invalid choice. Please enter 1-{len(available_providers)}[/bold red]")
+                
+                console.print(f"[dim]Selected: {provider_enum.value.title()}[/dim]\n")
         
         # Initialize AI client
         try:
+            # Use selected API key if we did interactive selection, otherwise use provided or auto-detect
+            final_api_key = api_key if api_key else (api_key if 'api_key' in locals() else None)
             ai_client = AIClient(
                 db=db,
                 provider=provider_enum,
-                api_key=api_key,
+                api_key=final_api_key,
                 model=model
             )
         except ValueError as e:

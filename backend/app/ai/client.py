@@ -34,6 +34,7 @@ class AIClient:
             provider = available[0]  # Use first available
         
         if api_key is None:
+            # Try to get API key - will use first available if multiple
             api_key = AIConfig.get_api_key(provider)
             if not api_key:
                 raise ValueError(

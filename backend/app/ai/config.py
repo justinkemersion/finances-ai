@@ -185,13 +185,14 @@ class AIConfig:
         return [provider for provider, keys in detected.items() if keys]
     
     @classmethod
-    def get_api_key(cls, provider: AIProvider, source_preference: Optional[List[str]] = None) -> Optional[str]:
+    def get_api_key(cls, provider: AIProvider, source_preference: Optional[List[str]] = None, source_index: Optional[int] = None) -> Optional[str]:
         """
-        Get API key for a provider with optional source preference
+        Get API key for a provider with optional source preference or index
         
         Args:
             provider: The AI provider
             source_preference: List of preferred sources (e.g., ["env:.env.local", "env_var:OPENAI_API_KEY"])
+            source_index: Index of the source to use (0-based, for interactive selection)
             
         Returns:
             API key if found, None otherwise
@@ -202,6 +203,10 @@ class AIConfig:
             return None
         
         keys = detected[provider]
+        
+        # If source index is specified, use that specific key
+        if source_index is not None and 0 <= source_index < len(keys):
+            return keys[source_index][1]
         
         # If source preference is specified, try those first
         if source_preference:
