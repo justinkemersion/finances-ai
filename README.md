@@ -231,10 +231,37 @@ python -m backend.app.api.cli sync --access-token <token> --item-id <item_id> --
 #### Natural Language Queries
 ```bash
 # Ask questions about your finances
-python -m backend.app.api.cli ask "What's my net worth?"
-python -m backend.app.api.cli ask "How did my portfolio perform last month?"
-python -m backend.app.api.cli ask "Show my top expenses"
+python -m backend.app ask "What's my net worth?"
+python -m backend.app ask "How did my portfolio perform last month?"
+python -m backend.app ask "Show my top expenses"
+python -m backend.app ask "How much did I spend on beer?"
+python -m backend.app ask "Restaurant spending last month"
+python -m backend.app ask "How much at Starbucks?"
+python -m backend.app ask "What's my income?"
 ```
+
+#### Test Data Injection
+```bash
+# Inject realistic test data for testing queries (beer, restaurants, gas, groceries, bills, income)
+python -m backend.app inject-test-data
+
+# Generate 6 months of test data
+python -m backend.app inject-test-data --months 6
+
+# Skip income transactions
+python -m backend.app inject-test-data --no-income
+
+# Inject for specific account
+python -m backend.app inject-test-data --account-id <account_id>
+```
+
+**Note**: The test data injection creates realistic spending patterns perfect for testing natural language queries. It includes:
+- Beer/alcohol transactions (15+)
+- Restaurant/dining transactions (25+)
+- Gas/fuel transactions (8+)
+- Grocery transactions (12+)
+- Monthly bills (electric, internet, phone)
+- Income/paystub transactions (bi-weekly)
 
 #### Dashboard
 ```bash
