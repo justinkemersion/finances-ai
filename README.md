@@ -121,6 +121,26 @@ finances-ai/
 
 ---
 
+## 💡 Quick Tips
+
+**Don't forget these powerful features:**
+
+1. **Natural Language Queries**: Ask questions in plain English instead of memorizing commands
+   - `python -m backend.app ask "how much did I spend on lunch?"`
+   - `python -m backend.app ask "lunch spending past 2 months"`
+   - See [NATURAL_QUERIES.md](NATURAL_QUERIES.md) for complete query guide
+
+2. **Smart Lunch Detection**: Automatically handles edge cases (grocery shopping, gas station food)
+   - Confidence scores show why each transaction was included/excluded
+   - Customizable thresholds for your spending patterns
+   - See [LUNCH_DETECTION.md](LUNCH_DETECTION.md) for details
+
+3. **AI-Powered Analysis**: Export your data and use with ChatGPT/Claude for deeper insights
+   - Get personalized savings recommendations
+   - Discover spending patterns and lifestyle alternatives
+   - Example: "Analyze my lunch spending and suggest meal prep alternatives"
+   - See [EXPORT_GUIDE.md](EXPORT_GUIDE.md) for instructions and example prompts
+
 ## 🚀 Quick Start
 
 ### Prerequisites
