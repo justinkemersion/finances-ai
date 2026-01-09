@@ -904,6 +904,7 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
             if len(available_providers) == 1:
                 provider_enum = available_providers[0]
                 console.print(f"[dim]Using {provider_enum.value.title()} (only provider available)[/dim]\n")
+                selected_api_key = None  # Will use first available key
             else:
                 # Multiple providers - show interactive selection
                 console.print("[bold cyan]🤖 Multiple AI providers detected. Choose one:[/bold cyan]\n")
@@ -949,6 +950,7 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
                 
                 # Get user selection
                 max_choice = choice_num - 1
+                selected_api_key = None
                 while True:
                     choice = Prompt.ask(
                         f"[bold]Select provider[/bold] [cyan](1-{max_choice})[/cyan]",
@@ -964,9 +966,6 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
                         break
                     else:
                         console.print(f"[bold red]Invalid choice. Please enter 1-{max_choice}[/bold red]")
-            else:
-                # Single provider - no selection needed
-                selected_api_key = None
         
         # Initialize AI client
         try:
