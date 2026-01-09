@@ -405,7 +405,9 @@ pytest
 - **[PLAID_SETUP.md](PLAID_SETUP.md)** - Plaid account setup guide
 - **[GET_TOKEN.md](GET_TOKEN.md)** - Getting Plaid access tokens
 - **[TRANSACTION_ANALYSIS.md](TRANSACTION_ANALYSIS.md)** - Transaction data model details
-- **[EXPORT_GUIDE.md](EXPORT_GUIDE.md)** - Guide for exporting data to use with LLMs
+- **[EXPORT_GUIDE.md](EXPORT_GUIDE.md)** - Guide for exporting data to use with LLMs (ChatGPT, Claude, etc.)
+- **[NATURAL_QUERIES.md](NATURAL_QUERIES.md)** - Complete guide to natural language queries
+- **[LUNCH_DETECTION.md](LUNCH_DETECTION.md)** - Smart lunch detection with confidence scoring
 
 ---
 
@@ -423,6 +425,8 @@ pytest
 ## 🎯 Roadmap
 
 - [x] Export to JSON for LLM analysis
+- [x] Natural language queries
+- [x] Smart lunch detection with confidence scoring
 - [ ] Enhanced expense budgeting
 - [ ] Recurring transaction detection
 - [ ] Tax categorization
@@ -431,6 +435,7 @@ pytest
 - [ ] Mobile app (optional)
 - [ ] Export to CSV/PDF
 - [ ] Custom category rules
+- [ ] User feedback loop for lunch detection (improve accuracy over time)
 
 ---
 
