@@ -34,7 +34,10 @@ This project is intentionally designed to avoid AI subscriptions, avoid direct A
 
 ### 🗣️ Natural Language Interface
 - **Intent-based query routing** - ask questions in plain English
-- **Optional AI explanations** - get insights without giving AI direct data access
+- **Smart lunch detection** - confidence scoring handles edge cases (grocery shopping, gas station food)
+- **Category-specific queries** - beer, restaurants, gas, groceries, etc.
+- **Merchant tracking** - track spending at specific merchants
+- **Cash flow analysis** - income vs expenses
 - **Query suggestions** - helpful prompts when queries aren't understood
 
 ### 🎨 Visualization
@@ -301,7 +304,14 @@ The export creates a JSON file optimized for LLM analysis with:
 - **Transactions** - All transactions with full details
 - **Net worth snapshots** - Historical net worth data
 
-Perfect for uploading to ChatGPT, Claude, or other LLMs for financial analysis and insights!
+**💡 Pro Tip**: Export your data and upload it to ChatGPT, Claude, or other AI platforms to:
+- Get personalized spending analysis and savings recommendations
+- Discover spending patterns you might have missed
+- Get AI-powered suggestions for lifestyle alternatives (e.g., "You spend $X on lunch - here's how much you'd save by meal prepping")
+- Analyze trends and get actionable financial advice
+- Compare your spending to benchmarks and get optimization tips
+
+See [EXPORT_GUIDE.md](EXPORT_GUIDE.md) for detailed instructions and example prompts!
 
 ---
 
