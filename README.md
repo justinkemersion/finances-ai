@@ -246,6 +246,36 @@ xdg-open dashboard.html  # Linux
 open dashboard.html      # macOS
 ```
 
+#### Data Export (for LLM Analysis)
+```bash
+# Export entire database to JSON (for ChatGPT, Claude, etc.)
+python -m backend.app.api.cli export
+
+# Export specific date range
+python -m backend.app.api.cli export --start-date 2024-01-01 --end-date 2024-12-31
+
+# Export only transactions (exclude holdings, net worth)
+python -m backend.app.api.cli export --no-holdings --no-net-worth
+
+# Export only banking transactions (exclude investment transactions)
+python -m backend.app.api.cli export --no-investment-txns
+
+# Export only expenses
+python -m backend.app.api.cli export --transaction-type expense
+
+# Export to custom file
+python -m backend.app.api.cli export --output my_finances.json
+```
+
+The export creates a JSON file optimized for LLM analysis with:
+- **Summary statistics** - Quick overview of your finances
+- **Accounts** - All account information
+- **Holdings** - Investment holdings
+- **Transactions** - All transactions with full details
+- **Net worth snapshots** - Historical net worth data
+
+Perfect for uploading to ChatGPT, Claude, or other LLMs for financial analysis and insights!
+
 ---
 
 ## 🔌 Data Sources
@@ -364,6 +394,7 @@ pytest
 
 ## 🎯 Roadmap
 
+- [x] Export to JSON for LLM analysis
 - [ ] Enhanced expense budgeting
 - [ ] Recurring transaction detection
 - [ ] Tax categorization
