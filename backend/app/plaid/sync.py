@@ -197,6 +197,37 @@ class PlaidSync:
             # Determine if cancelled
             is_cancelled = bool(txn_data.get("cancel_transaction_id"))
             
+            # Detect income/deposit transactions
+            # Investment transactions: dividends, interest, distributions are income
+            txn_type = txn_data.get("type", "").lower()
+            txn_subtype = txn_data.get("subtype", "").lower() if txn_data.get("subtype") else ""
+            amount = Decimal(str(txn_data["amount"]))
+            
+            is_income = False
+            is_deposit = False
+            is_paystub = False
+            income_type = None
+            
+            # Investment income types
+            if txn_type in ["dividend", "interest", "distribution"]:
+                is_income = True
+                income_type = txn_type
+            elif txn_subtype in ["dividend", "interest", "long_term_capital_gain", "short_term_capital_gain"]:
+                is_income = True
+                income_type = txn_subtype
+            # Deposits (positive amounts that aren't income)
+            elif amount > 0 and txn_type in ["deposit", "transfer"]:
+                is_deposit = True
+            # Paystub detection (look for payroll-related keywords in name)
+            elif amount > 0:
+                name_lower = txn_data.get("name", "").lower()
+                paystub_keywords = ["payroll", "paycheck", "salary", "wage", "pay stub", "direct deposit"]
+                if any(keyword in name_lower for keyword in paystub_keywords):
+                    is_paystub = True
+                    is_income = True
+                    is_deposit = True
+                    income_type = "salary"
+            
             if transaction:
                 # Update existing transaction (preserve user-defined fields)
                 transaction.date = txn_date
@@ -218,6 +249,11 @@ class PlaidSync:
                 transaction.is_cancelled = is_cancelled
                 transaction.is_pending = txn_data.get("is_pending", False)
                 transaction.plaid_data = txn_data.get("plaid_data")
+                # Income/deposit classification
+                transaction.is_income = is_income
+                transaction.is_deposit = is_deposit
+                transaction.is_paystub = is_paystub
+                transaction.income_type = income_type
                 transaction.updated_at = datetime.utcnow()
             else:
                 # Create new transaction
@@ -242,6 +278,11 @@ class PlaidSync:
                     is_cancelled=is_cancelled,
                     is_pending=txn_data.get("is_pending", False),
                     plaid_data=txn_data.get("plaid_data"),
+                    # Income/deposit classification
+                    is_income=is_income,
+                    is_deposit=is_deposit,
+                    is_paystub=is_paystub,
+                    income_type=income_type,
                 )
                 db.add(transaction)
             

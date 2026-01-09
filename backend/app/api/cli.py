@@ -11,7 +11,7 @@ from ..database import SessionLocal, engine, Base
 from ..models import Account
 from ..plaid import PlaidClient, PlaidSync
 from ..queries import QueryHandler
-from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer
+from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer, IncomeAnalyzer
 
 console = Console()
 
@@ -242,6 +242,128 @@ def accounts():
             )
         
         console.print(table)
+    finally:
+        db.close()
+
+
+@cli.command()
+@click.option("--months", default=12, help="Number of months to show")
+@click.option("--account-id", help="Filter by account ID")
+def income(months: int, account_id: str):
+    """Show income summary and breakdown"""
+    db = SessionLocal()
+    try:
+        summary = IncomeAnalyzer.calculate_income_summary(db, account_id=account_id)
+        monthly = IncomeAnalyzer.get_monthly_income(db, months=months, account_id=account_id)
+        
+        # Summary table
+        table = Table(title="Income Summary", box=box.ROUNDED)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green", justify="right")
+        
+        table.add_row("Total Income", f"${summary['total_income']:,.2f}")
+        table.add_row("Paystubs", f"{summary['paystub_count']} (${summary['paystub_total']:,.2f})")
+        
+        console.print(table)
+        
+        # Income by type
+        if summary['by_type']:
+            type_table = Table(title="Income by Type", box=box.ROUNDED)
+            type_table.add_column("Type", style="cyan")
+            type_table.add_column("Count", style="white", justify="right")
+            type_table.add_column("Total", style="green", justify="right")
+            
+            for item in summary['by_type']:
+                type_table.add_row(
+                    item['type'].title(),
+                    str(item['count']),
+                    f"${item['total']:,.2f}"
+                )
+            
+            console.print(type_table)
+        
+        # Monthly breakdown
+        if monthly:
+            monthly_table = Table(title=f"Monthly Income ({months} months)", box=box.ROUNDED)
+            monthly_table.add_column("Month", style="cyan")
+            monthly_table.add_column("Count", style="white", justify="right")
+            monthly_table.add_column("Total", style="green", justify="right")
+            
+            for month_data in monthly:
+                monthly_table.add_row(
+                    month_data['month'],
+                    str(month_data['transaction_count']),
+                    f"${month_data['total_income']:,.2f}"
+                )
+            
+            console.print(monthly_table)
+    finally:
+        db.close()
+
+
+@cli.command()
+@click.option("--limit", default=20, help="Number of transactions to show")
+@click.option("--account-id", help="Filter by account ID")
+def paystubs(limit: int, account_id: str):
+    """List paystub/payroll transactions"""
+    db = SessionLocal()
+    try:
+        paystubs = IncomeAnalyzer.get_paystubs(db, account_id=account_id)
+        
+        table = Table(title="Paystubs", box=box.ROUNDED)
+        table.add_column("Date", style="cyan")
+        table.add_column("Name", style="white")
+        table.add_column("Amount", style="green", justify="right")
+        table.add_column("Account", style="yellow")
+        
+        for txn in paystubs[:limit]:
+            account = db.query(Account).filter(Account.id == txn.account_id).first()
+            account_name = account.name if account else txn.account_id[:8]
+            
+            table.add_row(
+                txn.date.strftime("%Y-%m-%d"),
+                txn.name,
+                f"${float(txn.amount):,.2f}",
+                account_name
+            )
+        
+        console.print(table)
+        console.print(f"\n[dim]Showing {min(limit, len(paystubs))} of {len(paystubs)} paystubs[/dim]")
+    finally:
+        db.close()
+
+
+@cli.command()
+@click.option("--limit", default=20, help="Number of transactions to show")
+@click.option("--account-id", help="Filter by account ID")
+@click.option("--income-type", help="Filter by income type")
+def deposits(limit: int, account_id: str, income_type: str):
+    """List deposit transactions"""
+    db = SessionLocal()
+    try:
+        deposits_list = IncomeAnalyzer.get_deposits(db, account_id=account_id)
+        
+        table = Table(title="Deposits", box=box.ROUNDED)
+        table.add_column("Date", style="cyan")
+        table.add_column("Name", style="white")
+        table.add_column("Amount", style="green", justify="right")
+        table.add_column("Type", style="yellow")
+        table.add_column("Account", style="yellow")
+        
+        for txn in deposits_list[:limit]:
+            account = db.query(Account).filter(Account.id == txn.account_id).first()
+            account_name = account.name if account else txn.account_id[:8]
+            
+            table.add_row(
+                txn.date.strftime("%Y-%m-%d"),
+                txn.name,
+                f"${float(txn.amount):,.2f}",
+                txn.income_type or "deposit",
+                account_name
+            )
+        
+        console.print(table)
+        console.print(f"\n[dim]Showing {min(limit, len(deposits_list))} of {len(deposits_list)} deposits[/dim]")
     finally:
         db.close()
 

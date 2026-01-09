@@ -51,6 +51,14 @@ The transaction model has been enhanced with comprehensive fields to support dee
 - **recurring_pattern**: Pattern type (e.g., "monthly", "quarterly", "annual")
 - **confidence_score**: ML/analysis confidence score (0-100)
 
+### Income and Deposit Classification
+- **is_income**: Boolean flag indicating income transaction
+- **is_deposit**: Boolean flag indicating deposit transaction
+- **income_type**: Type of income (salary, dividend, interest, etc.)
+- **is_paystub**: Boolean flag for payroll/paystub transactions
+- **paystub_period_start**: Pay period start date (for paystubs)
+- **paystub_period_end**: Pay period end date (for paystubs)
+
 ### Transaction Status
 - **is_pending**: Whether transaction is pending
 - **is_cancelled**: Whether transaction was cancelled

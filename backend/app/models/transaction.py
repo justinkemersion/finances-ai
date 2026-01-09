@@ -52,6 +52,14 @@ class Transaction(Base):
     location_address = Column(String, nullable=True)
     location_postal_code = Column(String, nullable=True)
     
+    # Income and deposit classification
+    is_income = Column(Boolean, default=False, index=True)  # Is this an income transaction?
+    is_deposit = Column(Boolean, default=False, index=True)  # Is this a deposit?
+    income_type = Column(String, nullable=True, index=True)  # Type of income (salary, dividend, interest, etc.)
+    is_paystub = Column(Boolean, default=False, index=True)  # Is this a payroll/paystub transaction?
+    paystub_period_start = Column(DateTime, nullable=True)  # Pay period start date
+    paystub_period_end = Column(DateTime, nullable=True)  # Pay period end date
+    
     # User-defined categorization and analysis
     user_category = Column(String, nullable=True, index=True)  # User-assigned category
     tags = Column(JSON, nullable=True)  # Array of tags for flexible categorization
@@ -87,6 +95,10 @@ class Transaction(Base):
         Index("idx_transaction_pending", "is_pending"),
         Index("idx_transaction_recurring", "is_recurring"),
         Index("idx_transaction_date_range", "date", "account_id"),  # For date range queries
+        Index("idx_transaction_income", "is_income"),
+        Index("idx_transaction_deposit", "is_deposit"),
+        Index("idx_transaction_income_type", "income_type"),
+        Index("idx_transaction_paystub", "is_paystub"),
     )
     
     def __repr__(self):
