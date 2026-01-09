@@ -5,7 +5,10 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from .intent_router import QueryIntent, IntentRouter
-from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer
+from ..analytics import (
+    NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer,
+    IncomeAnalyzer, ExpenseAnalyzer
+)
 from ..models import Account, Transaction
 
 
@@ -44,16 +47,30 @@ class QueryHandler:
             return self.handle_holdings(parsed)
         elif intent == QueryIntent.TRANSACTIONS:
             return self.handle_transactions(parsed)
+        elif intent == QueryIntent.INCOME:
+            return self.handle_income(parsed)
+        elif intent == QueryIntent.EXPENSES:
+            return self.handle_expenses(parsed)
+        elif intent == QueryIntent.SPENDING_CATEGORY:
+            return self.handle_spending_category(parsed)
+        elif intent == QueryIntent.DIVIDENDS:
+            return self.handle_dividends(parsed)
+        elif intent == QueryIntent.CASH_FLOW:
+            return self.handle_cash_flow(parsed)
+        elif intent == QueryIntent.MERCHANT:
+            return self.handle_merchant(parsed)
         else:
             return {
                 "error": "Could not understand query",
                 "query": query,
                 "suggestions": [
                     "What's my net worth?",
-                    "How did my portfolio perform last month?",
-                    "What's my allocation?",
-                    "Show my holdings",
-                    "Show recent transactions",
+                    "How much did I earn last month?",
+                    "How much did I spend on beer?",
+                    "Show my expenses",
+                    "What are my dividends?",
+                    "How's my cash flow?",
+                    "How much at Starbucks?",
                 ]
             }
     
@@ -206,5 +223,288 @@ class QueryHandler:
                     for txn in transactions
                 ],
                 "count": len(transactions),
+            }
+        }
+    
+    def handle_income(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle income queries"""
+        time_range = parsed.get("time_range")
+        account_filter = parsed.get("account_filter")
+        account_id = None
+        
+        if account_filter:
+            account = self.db.query(Account).filter(
+                (Account.name.ilike(f"%{account_filter}%")) |
+                (Account.id == account_filter)
+            ).first()
+            if account:
+                account_id = account.id
+        
+        if time_range:
+            income_summary = IncomeAnalyzer.calculate_income_summary(
+                self.db,
+                start_date=time_range[0],
+                end_date=time_range[1],
+                account_id=account_id
+            )
+        else:
+            income_summary = IncomeAnalyzer.calculate_income_summary(
+                self.db,
+                account_id=account_id
+            )
+        
+        return {
+            "intent": "income",
+            "data": income_summary,
+        }
+    
+    def handle_expenses(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle expense queries"""
+        time_range = parsed.get("time_range")
+        account_filter = parsed.get("account_filter")
+        account_id = None
+        
+        if account_filter:
+            account = self.db.query(Account).filter(
+                (Account.name.ilike(f"%{account_filter}%")) |
+                (Account.id == account_filter)
+            ).first()
+            if account:
+                account_id = account.id
+        
+        if time_range:
+            expense_summary = ExpenseAnalyzer.calculate_expense_summary(
+                self.db,
+                start_date=time_range[0],
+                end_date=time_range[1],
+                account_id=account_id
+            )
+        else:
+            expense_summary = ExpenseAnalyzer.calculate_expense_summary(
+                self.db,
+                account_id=account_id
+            )
+        
+        return {
+            "intent": "expenses",
+            "data": expense_summary,
+        }
+    
+    def handle_spending_category(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle category-specific spending queries (e.g., 'how much on beer?')"""
+        time_range = parsed.get("time_range")
+        category = parsed.get("category")
+        account_filter = parsed.get("account_filter")
+        amount_threshold = parsed.get("amount_threshold")
+        account_id = None
+        
+        if account_filter:
+            account = self.db.query(Account).filter(
+                (Account.name.ilike(f"%{account_filter}%")) |
+                (Account.id == account_filter)
+            ).first()
+            if account:
+                account_id = account.id
+        
+        if not time_range:
+            from datetime import timedelta
+            time_range = (date.today() - timedelta(days=30), date.today())
+        
+        # Get expenses filtered by category
+        query = self.db.query(Transaction).filter(
+            Transaction.is_expense == True,
+            Transaction.date >= time_range[0],
+            Transaction.date <= time_range[1]
+        )
+        
+        if account_id:
+            query = query.filter(Transaction.account_id == account_id)
+        
+        if category:
+            # Try to match category in expense_category or primary_category
+            query = query.filter(
+                (Transaction.expense_category.ilike(f"%{category}%")) |
+                (Transaction.primary_category.ilike(f"%{category}%")) |
+                (Transaction.detailed_category.ilike(f"%{category}%")) |
+                (Transaction.merchant_name.ilike(f"%{category}%"))
+            )
+        
+        if amount_threshold:
+            query = query.filter(Transaction.amount <= -abs(amount_threshold))
+        
+        transactions = query.order_by(Transaction.date.desc()).all()
+        
+        total = sum(abs(float(txn.amount)) for txn in transactions)
+        
+        return {
+            "intent": "spending_category",
+            "category": category,
+            "data": {
+                "total": total,
+                "count": len(transactions),
+                "transactions": [
+                    {
+                        "date": txn.date.isoformat(),
+                        "name": txn.name,
+                        "merchant": txn.merchant_name,
+                        "amount": float(abs(txn.amount)),
+                        "category": txn.expense_category or txn.primary_category,
+                    }
+                    for txn in transactions[:20]  # Limit to 20 for display
+                ],
+            }
+        }
+    
+    def handle_dividends(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle dividend queries"""
+        time_range = parsed.get("time_range")
+        account_filter = parsed.get("account_filter")
+        account_id = None
+        
+        if account_filter:
+            account = self.db.query(Account).filter(
+                (Account.name.ilike(f"%{account_filter}%")) |
+                (Account.id == account_filter)
+            ).first()
+            if account:
+                account_id = account.id
+        
+        if not time_range:
+            from datetime import timedelta
+            time_range = (date.today() - timedelta(days=365), date.today())
+        
+        # Get dividend transactions
+        query = self.db.query(Transaction).filter(
+            Transaction.type == "dividend",
+            Transaction.date >= time_range[0],
+            Transaction.date <= time_range[1]
+        )
+        
+        if account_id:
+            query = query.filter(Transaction.account_id == account_id)
+        
+        dividends = query.order_by(Transaction.date.desc()).all()
+        
+        total = sum(float(txn.amount) for txn in dividends)
+        
+        return {
+            "intent": "dividends",
+            "data": {
+                "total": total,
+                "count": len(dividends),
+                "dividends": [
+                    {
+                        "date": txn.date.isoformat(),
+                        "name": txn.name,
+                        "ticker": txn.ticker,
+                        "amount": float(txn.amount),
+                        "quantity": float(txn.quantity) if txn.quantity else None,
+                    }
+                    for txn in dividends
+                ],
+            }
+        }
+    
+    def handle_cash_flow(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle cash flow queries (income vs expenses)"""
+        time_range = parsed.get("time_range")
+        account_filter = parsed.get("account_filter")
+        account_id = None
+        
+        if account_filter:
+            account = self.db.query(Account).filter(
+                (Account.name.ilike(f"%{account_filter}%")) |
+                (Account.id == account_filter)
+            ).first()
+            if account:
+                account_id = account.id
+        
+        if not time_range:
+            from datetime import timedelta
+            time_range = (date.today().replace(day=1), date.today())
+        
+        # Get income summary
+        income_summary = IncomeAnalyzer.calculate_income_summary(
+            self.db,
+            start_date=time_range[0],
+            end_date=time_range[1],
+            account_id=account_id
+        )
+        
+        # Get expense summary
+        expense_summary = ExpenseAnalyzer.calculate_expense_summary(
+            self.db,
+            start_date=time_range[0],
+            end_date=time_range[1],
+            account_id=account_id
+        )
+        
+        net_cash_flow = income_summary["total_income"] - expense_summary["total_expenses"]
+        
+        return {
+            "intent": "cash_flow",
+            "data": {
+                "income": income_summary["total_income"],
+                "expenses": expense_summary["total_expenses"],
+                "net_cash_flow": net_cash_flow,
+                "income_breakdown": income_summary["by_type"],
+                "expense_breakdown": expense_summary["by_category"][:10],
+            }
+        }
+    
+    def handle_merchant(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle merchant-specific queries (e.g., 'how much at Starbucks?')"""
+        time_range = parsed.get("time_range")
+        merchant = parsed.get("merchant")
+        account_filter = parsed.get("account_filter")
+        account_id = None
+        
+        if account_filter:
+            account = self.db.query(Account).filter(
+                (Account.name.ilike(f"%{account_filter}%")) |
+                (Account.id == account_filter)
+            ).first()
+            if account:
+                account_id = account.id
+        
+        if not time_range:
+            from datetime import timedelta
+            time_range = (date.today() - timedelta(days=30), date.today())
+        
+        if not merchant:
+            return {
+                "error": "No merchant specified",
+                "query": parsed.get("original_query"),
+            }
+        
+        # Get transactions for this merchant
+        query = self.db.query(Transaction).filter(
+            Transaction.merchant_name.ilike(f"%{merchant}%"),
+            Transaction.date >= time_range[0],
+            Transaction.date <= time_range[1]
+        )
+        
+        if account_id:
+            query = query.filter(Transaction.account_id == account_id)
+        
+        transactions = query.order_by(Transaction.date.desc()).all()
+        
+        total = sum(abs(float(txn.amount)) for txn in transactions)
+        
+        return {
+            "intent": "merchant",
+            "merchant": merchant,
+            "data": {
+                "total": total,
+                "count": len(transactions),
+                "transactions": [
+                    {
+                        "date": txn.date.isoformat(),
+                        "name": txn.name,
+                        "amount": float(abs(txn.amount)),
+                        "category": txn.expense_category or txn.primary_category,
+                    }
+                    for txn in transactions[:20]
+                ],
             }
         }

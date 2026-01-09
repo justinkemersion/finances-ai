@@ -217,6 +217,82 @@ def ask(query: tuple):
                         f"  {txn['date']}: {txn['name']} - "
                         f"${txn['amount']:,.2f} ({txn['type']})"
                     )
+            
+            elif intent == "income":
+                console.print(f"[bold green]Income Summary[/bold green]")
+                console.print(f"  Total Income: ${data['total_income']:,.2f}")
+                console.print(f"  Paystubs: {data['paystub_count']} (${data['paystub_total']:,.2f})")
+                if data.get('by_type'):
+                    console.print("\n[bold]By Type:[/bold]")
+                    for item in data['by_type']:
+                        console.print(
+                            f"  {item['type']}: ${item['total']:,.2f} ({item['count']} transactions)"
+                        )
+            
+            elif intent == "expenses":
+                console.print(f"[bold red]Expense Summary[/bold red]")
+                console.print(f"  Total Expenses: ${data['total_expenses']:,.2f}")
+                console.print(f"  Transactions: {data['transaction_count']}")
+                if data.get('by_category'):
+                    console.print("\n[bold]Top Categories:[/bold]")
+                    for item in data['by_category'][:10]:
+                        console.print(
+                            f"  {item['category']}: ${item['total']:,.2f} ({item['count']} transactions)"
+                        )
+            
+            elif intent == "spending_category":
+                category = result.get('category', 'category')
+                console.print(f"[bold yellow]Spending on {category.title()}[/bold yellow]")
+                console.print(f"  Total: ${data['total']:,.2f}")
+                console.print(f"  Transactions: {data['count']}")
+                if data.get('transactions'):
+                    console.print("\n[bold]Recent Transactions:[/bold]")
+                    for txn in data['transactions'][:10]:
+                        console.print(
+                            f"  {txn['date']}: {txn.get('merchant', txn['name'])} - "
+                            f"${txn['amount']:,.2f}"
+                        )
+            
+            elif intent == "dividends":
+                console.print(f"[bold green]Dividend Summary[/bold green]")
+                console.print(f"  Total Dividends: ${data['total']:,.2f}")
+                console.print(f"  Count: {data['count']}")
+                if data.get('dividends'):
+                    console.print("\n[bold]Recent Dividends:[/bold]")
+                    for div in data['dividends'][:10]:
+                        ticker = div.get('ticker', 'N/A')
+                        console.print(
+                            f"  {div['date']}: {ticker} - ${div['amount']:,.2f}"
+                        )
+            
+            elif intent == "cash_flow":
+                net = data['net_cash_flow']
+                color = "green" if net >= 0 else "red"
+                console.print(f"[bold]Cash Flow Summary[/bold]")
+                console.print(f"  [green]Income:[/green] ${data['income']:,.2f}")
+                console.print(f"  [red]Expenses:[/red] ${data['expenses']:,.2f}")
+                console.print(f"  [bold {color}]Net Cash Flow:[/bold {color}] ${net:,.2f}")
+                if data.get('income_breakdown'):
+                    console.print("\n[bold]Income Breakdown:[/bold]")
+                    for item in data['income_breakdown'][:5]:
+                        console.print(f"  {item['type']}: ${item['total']:,.2f}")
+                if data.get('expense_breakdown'):
+                    console.print("\n[bold]Top Expenses:[/bold]")
+                    for item in data['expense_breakdown'][:5]:
+                        console.print(f"  {item['category']}: ${item['total']:,.2f}")
+            
+            elif intent == "merchant":
+                merchant = result.get('merchant', 'merchant')
+                console.print(f"[bold]Spending at {merchant.title()}[/bold]")
+                console.print(f"  Total: ${data['total']:,.2f}")
+                console.print(f"  Transactions: {data['count']}")
+                if data.get('transactions'):
+                    console.print("\n[bold]Recent Transactions:[/bold]")
+                    for txn in data['transactions'][:10]:
+                        console.print(
+                            f"  {txn['date']}: ${txn['amount']:,.2f} "
+                            f"({txn.get('category', 'uncategorized')})"
+                        )
     finally:
         db.close()
 
