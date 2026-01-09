@@ -909,7 +909,7 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
                 # Multiple providers - show interactive selection
                 console.print("[bold cyan]🤖 Multiple AI providers detected. Choose one:[/bold cyan]\n")
                 
-                # Build selection table with all sources shown individually
+                # Build selection table with deduplicated sources
                 selection_table = Table(show_header=True, box=box.ROUNDED, title="Available AI Providers")
                 selection_table.add_column("#", style="cyan", width=4, justify="center")
                 selection_table.add_column("Provider", style="yellow", width=15)
@@ -920,27 +920,46 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
                 for provider_option in available_providers:
                     sources = detected[provider_option]
                     
-                    # Show first source on main row
-                    first_source = sources[0][0] if sources else "unknown"
-                    provider_map[str(choice_num)] = (provider_option, 0)  # (provider, source_index)
+                    # Deduplicate sources by API key value
+                    unique_sources = {}
+                    for source_name, api_key in sources:
+                        # Use API key as the deduplication key
+                        if api_key not in unique_sources:
+                            unique_sources[api_key] = []
+                        unique_sources[api_key].append(source_name)
+                    
+                    # Show first unique API key on main row
+                    first_key = list(unique_sources.keys())[0]
+                    first_sources = unique_sources[first_key]
+                    first_source_display = first_sources[0]
+                    if len(first_sources) > 1:
+                        first_source_display += f" (+{len(first_sources)-1} more)"
+                    
+                    provider_map[str(choice_num)] = (provider_option, sources.index((first_sources[0], first_key)))
                     selection_table.add_row(
                         str(choice_num),
                         provider_option.value.title(),
-                        first_source
+                        first_source_display
                     )
                     
-                    # If multiple sources for same provider, show them as sub-options
-                    if len(sources) > 1:
-                        for source_idx in range(1, len(sources)):
+                    # If multiple unique API keys for same provider, show them as sub-options
+                    if len(unique_sources) > 1:
+                        for api_key in list(unique_sources.keys())[1:]:
                             choice_num += 1
-                            source_name = sources[source_idx][0]
+                            source_list = unique_sources[api_key]
+                            source_display = source_list[0]
+                            if len(source_list) > 1:
+                                source_display += f" (+{len(source_list)-1} more)"
+                            
+                            # Find the index in original sources list
+                            source_idx = next(i for i, (s, k) in enumerate(sources) if k == api_key and s == source_list[0])
                             provider_map[str(choice_num)] = (provider_option, source_idx)
                             # Indicate sub-option
                             display_name = f"  └─ {provider_option.value.title()}"
                             selection_table.add_row(
                                 str(choice_num),
                                 display_name,
-                                source_name
+                                source_display
                             )
                     
                     choice_num += 1
