@@ -10,6 +10,37 @@ This project is intentionally designed to avoid AI subscriptions, avoid direct A
 
 ## ✨ Features
 
+### 🤖 AI-Powered Financial Analysis ⭐ **NEW & LEADING FEATURE**
+**Transform your financial data into actionable insights using state-of-the-art LLMs**
+
+Ask questions in natural language and receive intelligent, context-aware responses that help you understand your finances and make better decisions.
+
+**Key Capabilities:**
+- **Multi-Provider Support**: Choose from OpenAI (GPT), Anthropic (Claude), Google (Gemini), or Cohere
+- **Intelligent Data Selection**: Automatically includes only relevant data, saving API costs and improving quality
+- **Easy Comparison**: Run the same query with different LLMs to get diverse perspectives
+- **Flexible Models**: Select exact models to balance cost, speed, and quality
+- **Interactive Selection**: Beautiful menu to choose from detected API keys
+
+**Example:**
+```bash
+python -m backend.app ai "where can I focus on budgeting to make quick wins with savings?"
+```
+
+**Unique Use Cases:**
+- 💰 **Budget optimization** - Get personalized savings recommendations
+- 📊 **Spending pattern analysis** - Understand where your money goes with actionable insights
+- 💵 **Income optimization** - Identify additional revenue stream opportunities
+- 🏥 **Financial health assessments** - Comprehensive wellness checks
+- 🎯 **Goal-based planning** - "Save $10k in 6 months" with step-by-step plans
+- 🍽️ **Category deep dives** - Analyze restaurants, groceries, bills, etc.
+- 📈 **Investment portfolio reviews** - Get AI-powered portfolio analysis
+- 🧾 **Tax planning** - Identify deductions and optimization strategies
+
+**📖 [Complete AI Integration Guide →](AI_INTEGRATION.md)** - Comprehensive documentation with setup, use cases, examples, and best practices
+
+---
+
 ### 🔐 Security & Privacy
 - **Secure, read-only banking access** via Plaid API
 - **No screen scraping** - all data comes through official APIs
@@ -250,6 +281,34 @@ python -m backend.app.api.cli sync --access-token <token> --item-id <item_id>
 # Sync only transactions (skip holdings)
 python -m backend.app.api.cli sync --access-token <token> --item-id <item_id> --no-holdings
 ```
+
+#### 🤖 AI-Powered Analysis (⭐ Recommended)
+```bash
+# Get personalized financial insights and recommendations
+python -m backend.app ai "where can I focus on budgeting to make quick wins with savings?"
+
+# Analyze spending patterns
+python -m backend.app ai "analyze my spending patterns and suggest improvements"
+
+# Financial health check
+python -m backend.app ai "give me a comprehensive financial health assessment"
+
+# Goal-based planning
+python -m backend.app ai "if I want to save $10,000 in 6 months, what changes should I make?"
+
+# Category-specific analysis
+python -m backend.app ai "analyze my restaurant spending - am I eating out too much?"
+
+# Use specific provider and model
+python -m backend.app ai "budgeting advice" --provider openai --model gpt-4o
+python -m backend.app ai "quick insights" --provider google --model gemini-1.5-flash
+
+# List available providers and models
+python -m backend.app ai --list-providers
+python -m backend.app ai --list-models --provider openai
+```
+
+**See [AI_INTEGRATION.md](AI_INTEGRATION.md) for complete guide with 8+ use cases, setup instructions, and best practices!**
 
 #### Natural Language Queries
 ```bash
