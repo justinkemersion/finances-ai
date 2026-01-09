@@ -63,18 +63,48 @@ AI never talks to Plaid
 
 📂 Project Structure
 
-finance-ai/
+```
+finances-ai/
 ├── backend/
 │   ├── app/
+│   │   ├── analytics/      # Net worth, performance, allocation, income
+│   │   │   ├── allocation.py
+│   │   │   ├── income.py
+│   │   │   ├── net_worth.py
+│   │   │   └── performance.py
+│   │   ├── api/            # HTTP / CLI interface
+│   │   │   ├── cli.py
+│   │   │   └── rest.py
+│   │   ├── models/         # DB models (accounts, holdings, transactions, net_worth)
+│   │   │   ├── account.py
+│   │   │   ├── holding.py
+│   │   │   ├── net_worth.py
+│   │   │   └── transaction.py
 │   │   ├── plaid/          # Plaid client & sync jobs
-│   │   ├── models/         # DB models (accounts, holdings, txns)
-│   │   ├── analytics/      # Net worth, performance, allocation
+│   │   │   ├── client.py
+│   │   │   ├── sync.py
+│   │   │   └── test_connection.py
 │   │   ├── queries/        # Intent routing & query handlers
-│   │   └── api/            # HTTP / CLI interface
-│   └── main.py
-├── migrations/
-├── frontend/               # Optional dashboard
-└── README.md
+│   │   │   ├── handlers.py
+│   │   │   └── intent_router.py
+│   │   ├── config.py       # Application configuration
+│   │   ├── database.py     # Database setup
+│   │   └── __main__.py     # CLI entry point
+│   └── main.py             # API server entry point
+├── migrations/             # Alembic database migrations
+│   ├── versions/           # Migration files
+│   ├── env.py
+│   └── script.py.mako
+├── frontend/               # Optional dashboard (placeholder)
+├── alembic.ini             # Alembic configuration
+├── pyproject.toml          # Python project configuration
+├── requirements.txt        # Python dependencies
+├── README.md               # This file
+├── SETUP.md                # Setup instructions
+├── PLAID_SETUP.md          # Plaid configuration guide
+├── GET_TOKEN.md            # Guide for getting Plaid tokens
+└── TRANSACTION_ANALYSIS.md # Transaction data model documentation
+```
 
 This structure is Cursor-friendly and optimized for safe refactoring.
 
