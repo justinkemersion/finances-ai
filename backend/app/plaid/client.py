@@ -195,6 +195,19 @@ class PlaidClient:
                 # Extract all available data for comprehensive analysis
                 txn_dict = txn.to_dict() if hasattr(txn, 'to_dict') else {}
                 
+                # Convert date/datetime objects to strings for JSON serialization
+                import json
+                from datetime import date, datetime
+                def json_serial(obj):
+                    """JSON serializer for objects not serializable by default json code"""
+                    if isinstance(obj, (datetime, date)):
+                        return obj.isoformat()
+                    raise TypeError(f"Type {type(obj)} not serializable")
+                
+                # Convert the dict to JSON and back to ensure all dates are strings
+                txn_dict_str = json.dumps(txn_dict, default=json_serial)
+                txn_dict = json.loads(txn_dict_str)
+                
                 # Parse transaction datetime if available
                 transaction_datetime = None
                 if hasattr(txn, 'transaction_datetime') and txn.transaction_datetime:

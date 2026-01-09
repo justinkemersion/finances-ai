@@ -104,11 +104,10 @@ class PlaidSync:
             for holding_data in holdings_list:
                 security = holding_data.get("security", {})
                 
-                # Check if holding exists
+                # Check if holding exists (primary key is account_id + security_id)
                 holding = db.query(Holding).filter(
                     Holding.account_id == account_id,
-                    Holding.security_id == holding_data["security_id"],
-                    Holding.as_of_date == as_of_date
+                    Holding.security_id == holding_data["security_id"]
                 ).first()
                 
                 if holding:
@@ -117,6 +116,7 @@ class PlaidSync:
                     holding.price = Decimal(str(holding_data["price"])) if holding_data.get("price") else None
                     holding.value = Decimal(str(holding_data["value"])) if holding_data.get("value") else Decimal("0")
                     holding.cost_basis = Decimal(str(holding_data["cost_basis"])) if holding_data.get("cost_basis") else None
+                    holding.as_of_date = as_of_date  # Update the snapshot date
                     holding.updated_at = datetime.utcnow()
                 else:
                     # Create new holding
