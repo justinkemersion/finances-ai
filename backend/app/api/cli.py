@@ -298,20 +298,44 @@ def ask(query: tuple):
                 console.print(f"[bold yellow]Lunch Spending[/bold yellow]")
                 console.print(f"  Total: ${data['total']:,.2f}")
                 console.print(f"  Transactions: {data['count']}")
+                
+                if data.get('uncertain_count', 0) > 0:
+                    console.print(f"\n[dim yellow]⚠ {data['uncertain_count']} uncertain transactions (${data.get('uncertain_total', 0):,.2f})[/dim yellow]")
+                    console.print(f"[dim]These may be lunch but have lower confidence scores[/dim]")
+                
                 if data.get('merchant_breakdown'):
                     console.print("\n[bold]By Merchant:[/bold]")
                     for item in data['merchant_breakdown'][:10]:
+                        conf_str = f" (confidence: {item.get('confidence', 'N/A')}%)" if item.get('confidence') else ""
                         console.print(
-                            f"  {item['merchant']}: ${item['total']:,.2f} ({item['count']} transactions)"
+                            f"  {item['merchant']}: ${item['total']:,.2f} ({item['count']} transactions){conf_str}"
                         )
+                
                 if data.get('transactions'):
                     console.print("\n[bold]Recent Lunch Transactions:[/bold]")
                     for txn in data['transactions'][:15]:
                         time_str = f" @ {txn['time']}" if txn.get('time') else ""
                         merchant_str = f" - {txn['merchant']}" if txn.get('merchant') else ""
+                        conf_str = f" [{txn.get('confidence', 'N/A')}%]" if txn.get('confidence') else ""
                         console.print(
-                            f"  {txn['date']}{time_str}{merchant_str}: ${txn['amount']:,.2f}"
+                            f"  {txn['date']}{time_str}{merchant_str}: ${txn['amount']:,.2f}{conf_str}"
                         )
+                        # Show confidence reasons for lower confidence transactions
+                        if txn.get('confidence', 100) < 75 and txn.get('confidence_reasons'):
+                            reasons = ", ".join(txn['confidence_reasons'][:2])
+                            console.print(f"    [dim]→ {reasons}[/dim]")
+                
+                if data.get('uncertain_transactions'):
+                    console.print("\n[bold yellow]Uncertain Transactions (may not be lunch):[/bold yellow]")
+                    for txn in data['uncertain_transactions'][:5]:
+                        time_str = f" @ {txn['time']}" if txn.get('time') else ""
+                        console.print(
+                            f"  {txn['date']}{time_str} - {txn.get('merchant', txn['name'])}: "
+                            f"${txn['amount']:,.2f} [{txn.get('confidence', 'N/A')}%]"
+                        )
+                        if txn.get('confidence_reasons'):
+                            reasons = ", ".join(txn['confidence_reasons'][:3])
+                            console.print(f"    [dim]→ {reasons}[/dim]")
     finally:
         db.close()
 

@@ -133,12 +133,30 @@ class IntentRouter:
     
     # Common lunch merchants (can be customized)
     LUNCH_MERCHANTS = [
-        "chipotle", "firehouse", "king soupers", "taco bell", "subway",
+        "chipotle", "firehouse", "taco bell", "subway",
         "panera", "jimmy johns", "potbelly", "qdoba", "moe's",
         "panda express", "pita pit", "which wich", "jersey mike's",
         "firehouse subs", "blaze pizza", "mod pizza", "papa johns",
         "domino's", "pizza hut", "mcdonald's", "burger king", "wendy's",
     ]
+    
+    # Grocery stores that might have lunch counters (need amount filtering)
+    GROCERY_STORES = [
+        "king soupers", "albertsons", "safeway", "kroger", "walmart",
+        "target", "whole foods", "trader joe's", "aldi", "costco",
+        "publix", "giant eagle", "wegmans", "stop & shop",
+    ]
+    
+    # Gas stations (need to distinguish food vs. gas purchases)
+    GAS_STATIONS = [
+        "shell", "exxon", "bp", "chevron", "7-eleven", "wawa", "sheetz",
+        "speedway", "circle k", "arco", "mobil", "phillips 66",
+    ]
+    
+    # Lunch amount thresholds
+    LUNCH_MAX_AMOUNT = 20.0  # Typical lunch is under $20
+    GROCERY_LUNCH_THRESHOLD = 15.0  # Grocery store purchases > $15 are likely not lunch
+    GAS_FOOD_THRESHOLD = 15.0  # Gas station purchases > $15 are likely gas, not food
     
     TIME_PATTERNS = [
         (r"last\s+month", lambda: (date.today() - timedelta(days=30), date.today())),

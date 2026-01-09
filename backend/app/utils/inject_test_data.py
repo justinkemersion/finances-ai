@@ -211,16 +211,26 @@ def inject_restaurant_transactions(db: Session, account: Account, start_date: da
 
 
 def inject_gas_transactions(db: Session, account: Account, start_date: date, end_date: date, count: int = 8):
-    """Inject gas/fuel transactions"""
+    """Inject gas/fuel transactions - includes both gas purchases and food purchases"""
     current_date = start_date
     transactions = []
     
-    for _ in range(count):
+    # Mix of gas purchases and food purchases at gas stations
+    gas_purchase_count = int(count * 0.7)  # 70% actual gas
+    food_purchase_count = count - gas_purchase_count  # 30% food
+    
+    # Actual gas purchases (large amounts, any time)
+    for _ in range(gas_purchase_count):
         if current_date > end_date:
             break
         
         merchant = random.choice(GAS_STATIONS)
         amount = Decimal(random.uniform(30, 65)).quantize(Decimal('0.01'))
+        
+        # Random time
+        hour = random.randint(6, 22)
+        minute = random.randint(0, 59)
+        transaction_time = datetime.combine(current_date, datetime.min.time().replace(hour=hour, minute=minute))
         
         txn = create_test_transaction(
             db=db,
@@ -234,25 +244,67 @@ def inject_gas_transactions(db: Session, account: Account, start_date: date, end
             detailed_category="GENERAL_MERCHANDISE_GAS_STATIONS",
             is_expense=True
         )
+        txn.transaction_datetime = transaction_time
         transactions.append(txn)
         
         days_offset = random.choice([3, 4, 5, 6, 7, 8, 9, 10, 14])
+        current_date += timedelta(days=days_offset)
+    
+    # Food purchases at gas stations (small amounts, lunch time)
+    for _ in range(food_purchase_count):
+        if current_date > end_date:
+            break
+        
+        merchant = random.choice(["7-Eleven", "Wawa", "Sheetz"])  # These have food
+        amount = Decimal(random.uniform(5, 12)).quantize(Decimal('0.01'))  # Small amount
+        
+        # Lunch time
+        lunch_hour = random.randint(11, 14)
+        lunch_minute = random.randint(0, 59)
+        transaction_time = datetime.combine(current_date, datetime.min.time().replace(hour=lunch_hour, minute=lunch_minute))
+        
+        txn = create_test_transaction(
+            db=db,
+            account=account,
+            date=current_date,
+            name=f"{merchant} - Food",
+            amount=-amount,
+            merchant_name=merchant,
+            expense_category="gas",  # Still categorized as gas station
+            primary_category="GENERAL_MERCHANDISE",
+            detailed_category="GENERAL_MERCHANDISE_GAS_STATIONS",
+            is_expense=True
+        )
+        txn.transaction_datetime = transaction_time
+        transactions.append(txn)
+        
+        days_offset = random.choice([1, 2, 3, 4])
         current_date += timedelta(days=days_offset)
     
     return transactions
 
 
 def inject_grocery_transactions(db: Session, account: Account, start_date: date, end_date: date, count: int = 12):
-    """Inject grocery transactions"""
+    """Inject grocery transactions - includes both full shopping and lunch runs"""
     current_date = start_date
     transactions = []
     
-    for _ in range(count):
+    # Mix of full shopping trips and small lunch runs
+    full_shopping_count = int(count * 0.7)  # 70% full shopping
+    lunch_run_count = count - full_shopping_count  # 30% lunch runs
+    
+    # Full shopping trips (larger amounts, any time of day)
+    for _ in range(full_shopping_count):
         if current_date > end_date:
             break
         
         merchant = random.choice(GROCERY_STORES)
         amount = Decimal(random.uniform(45, 150)).quantize(Decimal('0.01'))
+        
+        # Random time (not necessarily lunch time)
+        hour = random.randint(9, 20)
+        minute = random.randint(0, 59)
+        transaction_time = datetime.combine(current_date, datetime.min.time().replace(hour=hour, minute=minute))
         
         txn = create_test_transaction(
             db=db,
@@ -266,9 +318,41 @@ def inject_grocery_transactions(db: Session, account: Account, start_date: date,
             detailed_category="FOOD_AND_DRINK_GROCERIES",
             is_expense=True
         )
+        txn.transaction_datetime = transaction_time
         transactions.append(txn)
         
         days_offset = random.choice([3, 4, 5, 6, 7])
+        current_date += timedelta(days=days_offset)
+    
+    # Small lunch runs at grocery stores (during lunch hours, small amounts)
+    for _ in range(lunch_run_count):
+        if current_date > end_date:
+            break
+        
+        merchant = random.choice(["King Soupers", "Safeway", "Albertsons"])  # These have lunch counters
+        amount = Decimal(random.uniform(8, 14)).quantize(Decimal('0.01'))  # Small amount
+        
+        # Lunch time
+        lunch_hour = random.randint(11, 14)
+        lunch_minute = random.randint(0, 59)
+        transaction_time = datetime.combine(current_date, datetime.min.time().replace(hour=lunch_hour, minute=lunch_minute))
+        
+        txn = create_test_transaction(
+            db=db,
+            account=account,
+            date=current_date,
+            name=f"{merchant} - Lunch",
+            amount=-amount,
+            merchant_name=merchant,
+            expense_category="groceries",
+            primary_category="FOOD_AND_DRINK",
+            detailed_category="FOOD_AND_DRINK_GROCERIES",
+            is_expense=True
+        )
+        txn.transaction_datetime = transaction_time
+        transactions.append(txn)
+        
+        days_offset = random.choice([1, 2, 3])
         current_date += timedelta(days=days_offset)
     
     return transactions

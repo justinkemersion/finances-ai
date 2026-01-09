@@ -512,11 +512,113 @@ class QueryHandler:
             }
         }
     
+    def calculate_lunch_confidence(self, txn: Transaction) -> Dict[str, Any]:
+        """
+        Calculate confidence score that a transaction is actually lunch
+        
+        Returns dict with:
+        - confidence: 0-100 score
+        - reasons: list of factors affecting confidence
+        - is_likely_lunch: boolean
+        """
+        from sqlalchemy import extract
+        from datetime import time
+        
+        confidence = 50  # Start neutral
+        reasons = []
+        amount = abs(float(txn.amount))
+        merchant = (txn.merchant_name or txn.name or "").lower()
+        
+        # Check if it's a grocery store
+        is_grocery = any(grocery in merchant for grocery in IntentRouter.GROCERY_STORES)
+        # Check if it's a gas station
+        is_gas_station = any(gas in merchant for gas in IntentRouter.GAS_STATIONS)
+        # Check if it's a known lunch merchant
+        is_lunch_merchant = any(lunch in merchant for lunch in IntentRouter.LUNCH_MERCHANTS)
+        
+        # Time-based scoring
+        if txn.transaction_datetime:
+            hour = txn.transaction_datetime.hour
+            if 11 <= hour <= 14:  # Lunch hours
+                confidence += 30
+                reasons.append(f"Lunch time ({hour}:{txn.transaction_datetime.minute:02d})")
+            elif 8 <= hour <= 10 or 15 <= hour <= 16:  # Near lunch hours
+                confidence += 10
+                reasons.append(f"Near lunch time ({hour}:{txn.transaction_datetime.minute:02d})")
+            else:
+                confidence -= 20
+                reasons.append(f"Outside lunch hours ({hour}:{txn.transaction_datetime.minute:02d})")
+        else:
+            reasons.append("No time data available")
+        
+        # Merchant-based scoring
+        if is_lunch_merchant:
+            confidence += 40
+            reasons.append("Known lunch merchant")
+        elif is_grocery:
+            # Grocery stores need amount filtering
+            if amount <= IntentRouter.GROCERY_LUNCH_THRESHOLD:
+                confidence += 20
+                reasons.append(f"Grocery store, small amount (${amount:.2f})")
+            else:
+                confidence -= 50
+                reasons.append(f"Grocery store, large amount (${amount:.2f}) - likely full shopping")
+        elif is_gas_station:
+            # Gas stations: small amount = food, large amount = gas
+            if amount <= IntentRouter.GAS_FOOD_THRESHOLD:
+                confidence += 25
+                reasons.append(f"Gas station, small amount (${amount:.2f}) - likely food")
+            else:
+                confidence -= 40
+                reasons.append(f"Gas station, large amount (${amount:.2f}) - likely gas purchase")
+        else:
+            # Unknown merchant, rely on other factors
+            confidence -= 10
+            reasons.append("Unknown merchant type")
+        
+        # Amount-based scoring
+        if amount <= IntentRouter.LUNCH_MAX_AMOUNT:
+            confidence += 15
+            reasons.append(f"Typical lunch amount (${amount:.2f})")
+        elif amount <= 25:
+            confidence += 5
+            reasons.append(f"Moderate amount (${amount:.2f})")
+        else:
+            confidence -= 30
+            reasons.append(f"Large amount (${amount:.2f}) - unlikely to be lunch")
+        
+        # Category-based scoring
+        if txn.expense_category in ["restaurants", "food"]:
+            confidence += 10
+            reasons.append("Restaurant/food category")
+        elif txn.primary_category and "FOOD" in txn.primary_category:
+            confidence += 10
+            reasons.append("Food category")
+        elif is_grocery and amount > IntentRouter.GROCERY_LUNCH_THRESHOLD:
+            # Large grocery purchase is definitely not lunch
+            confidence -= 20
+            reasons.append("Large grocery purchase")
+        
+        # Clamp confidence to 0-100
+        confidence = max(0, min(100, confidence))
+        
+        # Determine if likely lunch (threshold: 60)
+        is_likely_lunch = confidence >= 60
+        
+        return {
+            "confidence": confidence,
+            "reasons": reasons,
+            "is_likely_lunch": is_likely_lunch,
+            "amount": amount,
+            "merchant": merchant,
+        }
+    
     def handle_lunch(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle lunch spending queries - smart detection using time and merchant"""
+        """Handle lunch spending queries - smart detection using time, merchant, and amount"""
         time_range = parsed.get("time_range")
         account_filter = parsed.get("account_filter")
         account_id = None
+        show_uncertain = parsed.get("show_uncertain", False)  # Future: allow showing uncertain transactions
         
         if account_filter:
             account = self.db.query(Account).filter(
@@ -530,8 +632,8 @@ class QueryHandler:
             from datetime import timedelta
             time_range = (date.today() - timedelta(days=60), date.today())  # Default 2 months
         
-        # Build query for lunch transactions
-        # Strategy: Filter by time of day (11am-2pm) OR known lunch merchants
+        # Build query for potential lunch transactions
+        # Strategy: Cast a wider net, then filter by confidence
         from sqlalchemy import or_, func, extract
         
         query = self.db.query(Transaction).filter(
@@ -543,57 +645,104 @@ class QueryHandler:
         if account_id:
             query = query.filter(Transaction.account_id == account_id)
         
-        # Time-based filtering: lunch is typically 11am-2pm
-        # Check if transaction_datetime is available and in lunch hours
+        # Initial filter: time-based OR merchant-based OR category-based
         lunch_conditions = []
         
-        # If transaction_datetime exists, filter by hour (11-14 = 11am-2pm)
+        # Time-based: lunch hours
         lunch_conditions.append(
             (Transaction.transaction_datetime.isnot(None)) &
             (extract('hour', Transaction.transaction_datetime) >= 11) &
             (extract('hour', Transaction.transaction_datetime) <= 14)
         )
         
-        # Also match known lunch merchants (case-insensitive)
+        # Known lunch merchants
         lunch_merchant_patterns = IntentRouter.LUNCH_MERCHANTS
         merchant_conditions = []
         for merchant in lunch_merchant_patterns:
             merchant_conditions.append(Transaction.merchant_name.ilike(f"%{merchant}%"))
             merchant_conditions.append(Transaction.name.ilike(f"%{merchant}%"))
         
-        # Combine: time-based OR merchant-based
+        # Grocery stores with small amounts (potential lunch)
+        grocery_conditions = []
+        for grocery in IntentRouter.GROCERY_STORES:
+            grocery_conditions.append(
+                (Transaction.merchant_name.ilike(f"%{grocery}%")) |
+                (Transaction.name.ilike(f"%{grocery}%"))
+            )
+        if grocery_conditions:
+            # Only include grocery stores with small amounts
+            lunch_conditions.append(
+                or_(*grocery_conditions) &
+                (func.abs(Transaction.amount) <= IntentRouter.GROCERY_LUNCH_THRESHOLD)
+            )
+        
+        # Gas stations with small amounts (potential food)
+        gas_conditions = []
+        for gas in IntentRouter.GAS_STATIONS:
+            gas_conditions.append(
+                (Transaction.merchant_name.ilike(f"%{gas}%")) |
+                (Transaction.name.ilike(f"%{gas}%"))
+            )
+        if gas_conditions:
+            # Only include gas stations with small amounts
+            lunch_conditions.append(
+                or_(*gas_conditions) &
+                (func.abs(Transaction.amount) <= IntentRouter.GAS_FOOD_THRESHOLD)
+            )
+        
+        # Restaurant/food categories
+        category_conditions = [
+            Transaction.expense_category.in_(["restaurants", "food"]),
+            Transaction.primary_category.ilike("%FOOD%"),
+            Transaction.detailed_category.ilike("%RESTAURANT%"),
+            Transaction.detailed_category.ilike("%FOOD%"),
+        ]
+        
+        # Combine all conditions
         if merchant_conditions:
             lunch_conditions.append(or_(*merchant_conditions))
+        lunch_conditions.append(or_(*category_conditions))
         
-        # Apply the lunch filter
+        # Apply the filter
         query = query.filter(or_(*lunch_conditions))
         
-        # Also filter to restaurant/food categories to be safe
-        query = query.filter(
-            or_(
-                Transaction.expense_category.in_(["restaurants", "food"]),
-                Transaction.primary_category.ilike("%FOOD%"),
-                Transaction.detailed_category.ilike("%RESTAURANT%"),
-                Transaction.detailed_category.ilike("%FOOD%"),
-            )
-        )
+        # Get all potential transactions
+        all_transactions = query.order_by(Transaction.date.desc()).all()
         
-        transactions = query.order_by(Transaction.date.desc()).all()
+        # Calculate confidence for each and filter
+        lunch_transactions = []
+        uncertain_transactions = []
         
-        total = sum(abs(float(txn.amount)) for txn in transactions)
+        for txn in all_transactions:
+            confidence_data = self.calculate_lunch_confidence(txn)
+            
+            if confidence_data["is_likely_lunch"]:
+                lunch_transactions.append((txn, confidence_data))
+            elif confidence_data["confidence"] >= 40:  # Somewhat uncertain
+                uncertain_transactions.append((txn, confidence_data))
+        
+        # Calculate totals
+        total = sum(abs(float(txn.amount)) for txn, _ in lunch_transactions)
+        uncertain_total = sum(abs(float(txn.amount)) for txn, _ in uncertain_transactions)
         
         # Group by merchant for breakdown
         merchant_totals = {}
-        for txn in transactions:
+        for txn, conf_data in lunch_transactions:
             merchant = txn.merchant_name or txn.name
             if merchant not in merchant_totals:
-                merchant_totals[merchant] = {"count": 0, "total": 0.0}
+                merchant_totals[merchant] = {"count": 0, "total": 0.0, "avg_confidence": 0.0}
             merchant_totals[merchant]["count"] += 1
             merchant_totals[merchant]["total"] += abs(float(txn.amount))
+            merchant_totals[merchant]["avg_confidence"] += conf_data["confidence"]
+        
+        # Calculate average confidence per merchant
+        for merchant in merchant_totals:
+            merchant_totals[merchant]["avg_confidence"] /= merchant_totals[merchant]["count"]
         
         # Sort merchants by total
         merchant_breakdown = sorted(
-            [{"merchant": k, **v} for k, v in merchant_totals.items()],
+            [{"merchant": k, **{key: v for key, v in v.items() if key != "avg_confidence"}, 
+              "confidence": round(v["avg_confidence"], 1)} for k, v in merchant_totals.items()],
             key=lambda x: x["total"],
             reverse=True
         )
@@ -602,7 +751,9 @@ class QueryHandler:
             "intent": "lunch",
             "data": {
                 "total": total,
-                "count": len(transactions),
+                "count": len(lunch_transactions),
+                "uncertain_count": len(uncertain_transactions),
+                "uncertain_total": uncertain_total,
                 "merchant_breakdown": merchant_breakdown,
                 "transactions": [
                     {
@@ -612,8 +763,22 @@ class QueryHandler:
                         "merchant": txn.merchant_name,
                         "amount": float(abs(txn.amount)),
                         "category": txn.expense_category or txn.primary_category,
+                        "confidence": round(conf_data["confidence"], 1),
+                        "confidence_reasons": conf_data["reasons"][:3],  # Top 3 reasons
                     }
-                    for txn in transactions[:30]  # Limit to 30 for display
+                    for txn, conf_data in lunch_transactions[:30]  # Limit to 30 for display
                 ],
+                "uncertain_transactions": [
+                    {
+                        "date": txn.date.isoformat(),
+                        "time": txn.transaction_datetime.strftime("%H:%M") if txn.transaction_datetime else None,
+                        "name": txn.name,
+                        "merchant": txn.merchant_name,
+                        "amount": float(abs(txn.amount)),
+                        "confidence": round(conf_data["confidence"], 1),
+                        "confidence_reasons": conf_data["reasons"],
+                    }
+                    for txn, conf_data in uncertain_transactions[:10]  # Show top 10 uncertain
+                ] if uncertain_transactions else [],
             }
         }
