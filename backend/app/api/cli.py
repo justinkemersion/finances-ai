@@ -813,21 +813,27 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
                 return
             
             # Get available models for provider
-            from ..ai.providers import get_provider
+            # Use fallback models since we may not have the package installed
+            models = {
+                AIProvider.OPENAI: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+                AIProvider.ANTHROPIC: ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+                AIProvider.GOOGLE: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"],
+                AIProvider.COHERE: ["command-r-plus", "command-r", "command", "command-light", "command-nightly"],
+            }.get(provider_enum, [])
+            
+            if not models:
+                console.print(f"[bold red]❌ Unknown provider: {provider_enum.value}[/bold red]")
+                return
+            
+            # Try to get models from provider class if available
             try:
-                # Create a dummy provider instance to get models
-                # We'll use a placeholder key just to instantiate
+                from ..ai.providers import get_provider
                 temp_provider = get_provider(provider_enum, "dummy_key")
                 if hasattr(temp_provider, 'AVAILABLE_MODELS'):
                     models = temp_provider.AVAILABLE_MODELS
-                else:
-                    # Fallback to common models
-                    models = {
-                        AIProvider.OPENAI: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
-                        AIProvider.ANTHROPIC: ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
-                        AIProvider.GOOGLE: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"],
-                        AIProvider.COHERE: ["command-r-plus", "command-r", "command", "command-light"],
-                    }.get(provider_enum, [])
+            except (ImportError, Exception):
+                # Use fallback models if package not installed
+                pass
                 
                 table = Table(title=f"Available Models for {provider_enum.value.title()}", box=box.ROUNDED)
                 table.add_column("Model", style="cyan")
