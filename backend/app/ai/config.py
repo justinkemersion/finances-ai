@@ -13,9 +13,11 @@ class AIProvider(Enum):
     """Supported AI providers"""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    GOOGLE = "google"  # Gemini
+    COHERE = "cohere"
     # Add more providers as needed
-    # GOOGLE = "google"
-    # COHERE = "cohere"
+    # MISTRAL = "mistral"
+    # PERPLEXITY = "perplexity"
 
 
 class AIConfig:
@@ -32,6 +34,16 @@ class AIConfig:
             r"ANTHROPIC_API_KEY",
             r"ANTHROPIC_KEY",
             r"CLAUDE.*API.*KEY",
+        ],
+        AIProvider.GOOGLE: [
+            r"GOOGLE_API_KEY",
+            r"GEMINI_API_KEY",
+            r"GOOGLE.*API.*KEY",
+            r"GEMINI.*API.*KEY",
+        ],
+        AIProvider.COHERE: [
+            r"COHERE_API_KEY",
+            r"COHERE_KEY",
         ],
     }
     

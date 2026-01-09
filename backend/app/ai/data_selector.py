@@ -88,7 +88,7 @@ class DataSelector:
         start_date, end_date = time_range if time_range else (None, None)
         
         # Use export functionality to get expense data
-        from .export import export_transactions
+        from ..api.export import export_transactions
         transactions = export_transactions(
             self.db,
             start_date=start_date,
@@ -117,6 +117,7 @@ class DataSelector:
         """Get income data"""
         start_date, end_date = time_range if time_range else (None, None)
         
+        from ..api.export import export_transactions
         transactions = export_transactions(
             self.db,
             start_date=start_date,

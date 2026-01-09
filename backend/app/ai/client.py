@@ -11,7 +11,7 @@ from .data_selector import DataSelector
 class AIClient:
     """Main client for AI-powered financial analysis"""
     
-    def __init__(self, db: Session, provider: Optional[AIProvider] = None, api_key: Optional[str] = None):
+    def __init__(self, db: Session, provider: Optional[AIProvider] = None, api_key: Optional[str] = None, model: Optional[str] = None):
         """
         Initialize AI client
         
@@ -19,6 +19,7 @@ class AIClient:
             db: Database session
             provider: AI provider to use (if None, will auto-detect)
             api_key: API key (if None, will auto-detect)
+            model: Model to use (if None, uses provider default)
         """
         self.db = db
         self.data_selector = DataSelector(db)
@@ -41,7 +42,7 @@ class AIClient:
                 )
         
         self.provider = provider
-        self.ai_provider: BaseAIProvider = get_provider(provider, api_key)
+        self.ai_provider: BaseAIProvider = get_provider(provider, api_key, model=model)
     
     def query(self, user_query: str, include_full_data: bool = False) -> Dict[str, Any]:
         """

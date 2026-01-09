@@ -756,10 +756,11 @@ def inject_test_data(account_id: str, months: int, no_income: bool):
 @click.argument("query", required=False)
 @click.option("--provider", help="AI provider to use (openai, anthropic)")
 @click.option("--api-key", help="API key (overrides auto-detection)")
-@click.option("--model", help="Model to use (e.g., gpt-4o-mini, claude-3-5-sonnet-20241022)")
+@click.option("--model", help="Exact model to use (e.g., gpt-4o, gemini-1.5-pro, claude-3-5-sonnet-20241022, command-r-plus)")
+@click.option("--list-models", is_flag=True, help="List available models for a provider")
 @click.option("--full-data", is_flag=True, help="Include full database export (use with caution)")
 @click.option("--list-providers", is_flag=True, help="List available providers and exit")
-def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, list_providers: bool):
+def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, list_providers: bool, list_models: bool):
     """Query AI with your financial data for analysis and insights"""
     from ..ai import AIClient, AIProvider, AIConfig
     from rich.panel import Panel
@@ -798,6 +799,69 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
             console.print(table)
             return
         
+        # List models if requested
+        if list_models:
+            if not provider:
+                console.print("[bold red]❌ Error: --list-models requires --provider[/bold red]")
+                console.print("\n[bold]Usage:[/bold] python -m backend.app ai --list-models --provider openai")
+                return
+            
+            try:
+                provider_enum = AIProvider(provider.lower())
+            except ValueError:
+                console.print(f"[bold red]❌ Unknown provider: {provider}[/bold red]")
+                return
+            
+            # Get available models for provider
+            from ..ai.providers import get_provider
+            try:
+                # Create a dummy provider instance to get models
+                # We'll use a placeholder key just to instantiate
+                temp_provider = get_provider(provider_enum, "dummy_key")
+                if hasattr(temp_provider, 'AVAILABLE_MODELS'):
+                    models = temp_provider.AVAILABLE_MODELS
+                else:
+                    # Fallback to common models
+                    models = {
+                        AIProvider.OPENAI: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+                        AIProvider.ANTHROPIC: ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+                        AIProvider.GOOGLE: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"],
+                        AIProvider.COHERE: ["command-r-plus", "command-r", "command", "command-light"],
+                    }.get(provider_enum, [])
+                
+                table = Table(title=f"Available Models for {provider_enum.value.title()}", box=box.ROUNDED)
+                table.add_column("Model", style="cyan")
+                table.add_column("Description", style="dim")
+                
+                model_descriptions = {
+                    "gpt-4o": "Most capable, latest model",
+                    "gpt-4o-mini": "Fast and affordable",
+                    "gpt-4-turbo": "High performance",
+                    "gpt-4": "Previous generation",
+                    "gpt-3.5-turbo": "Fast and cost-effective",
+                    "claude-3-5-sonnet-20241022": "Latest, most capable",
+                    "claude-3-opus-20240229": "Most powerful",
+                    "claude-3-sonnet-20240229": "Balanced performance",
+                    "claude-3-haiku-20240307": "Fast and efficient",
+                    "gemini-1.5-pro": "Most capable, latest",
+                    "gemini-1.5-flash": "Fast and efficient",
+                    "gemini-pro": "Previous generation",
+                    "command-r-plus": "Most capable",
+                    "command-r": "High performance",
+                    "command": "Balanced",
+                    "command-light": "Fast and efficient",
+                }
+                
+                for model_name in models:
+                    desc = model_descriptions.get(model_name, "Available model")
+                    table.add_row(model_name, desc)
+                
+                console.print(table)
+                console.print(f"\n[dim]Use --model to specify exact model: --model {models[0] if models else 'model-name'}[/dim]")
+            except Exception as e:
+                console.print(f"[bold red]❌ Error:[/bold red] {str(e)}")
+            return
+        
         # Require query if not listing providers
         if not query:
             console.print("[bold red]❌ Error: Query is required (or use --list-providers)[/bold red]")
@@ -820,7 +884,8 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
             ai_client = AIClient(
                 db=db,
                 provider=provider_enum,
-                api_key=api_key
+                api_key=api_key,
+                model=model
             )
         except ValueError as e:
             console.print(f"[bold red]❌ {str(e)}[/bold red]")
