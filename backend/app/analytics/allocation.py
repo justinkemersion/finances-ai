@@ -33,9 +33,13 @@ class AllocationAnalyzer:
         if as_of_date is None:
             as_of_date = date.today()
         
+        # Convert date to datetime for comparison with DateTime column
+        from datetime import datetime
+        as_of_datetime = datetime.combine(as_of_date, datetime.max.time())
+        
         # Get latest holdings
         query = db.query(Holding).filter(
-            Holding.as_of_date <= as_of_date
+            Holding.as_of_date <= as_of_datetime
         )
         
         if account_id:
@@ -43,7 +47,7 @@ class AllocationAnalyzer:
         
         # Get the latest date
         latest_date = db.query(func.max(Holding.as_of_date)).filter(
-            Holding.as_of_date <= as_of_date
+            Holding.as_of_date <= as_of_datetime
         ).scalar()
         
         if not latest_date:

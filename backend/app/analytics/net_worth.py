@@ -27,6 +27,10 @@ class NetWorthAnalyzer:
         if as_of_date is None:
             as_of_date = date.today()
         
+        # Convert date to datetime for comparison with DateTime column
+        from datetime import datetime
+        as_of_datetime = datetime.combine(as_of_date, datetime.max.time())
+        
         # Get all active accounts
         accounts = db.query(Account).filter(Account.is_active == True).all()
         
@@ -43,7 +47,7 @@ class NetWorthAnalyzer:
             # Get latest holdings for this account
             latest_holdings = db.query(Holding).filter(
                 Holding.account_id == account.id,
-                Holding.as_of_date <= as_of_date
+                Holding.as_of_date <= as_of_datetime
             ).order_by(Holding.as_of_date.desc()).first()
             
             if latest_holdings:
