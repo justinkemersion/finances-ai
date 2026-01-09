@@ -147,16 +147,20 @@ class PlaidSync:
         db: Session,
         access_token: str,
         start_date: Optional[date] = None,
-        end_date: Optional[date] = None
+        end_date: Optional[date] = None,
+        sync_investment: bool = True,
+        sync_banking: bool = True
     ) -> List[Transaction]:
         """
-        Sync investment transactions from Plaid to database
+        Sync transactions from Plaid to database (both investment and banking)
         
         Args:
             db: Database session
             access_token: Plaid access token
             start_date: Start date for transactions (defaults to 30 days ago)
             end_date: End date for transactions (defaults to today)
+            sync_investment: Whether to sync investment transactions
+            sync_banking: Whether to sync regular banking transactions
             
         Returns:
             List of synced Transaction objects
@@ -166,11 +170,44 @@ class PlaidSync:
         if end_date is None:
             end_date = date.today()
         
-        transactions_data = self.plaid_client.get_investment_transactions(
-            access_token,
-            start_date.isoformat(),
-            end_date.isoformat()
-        )
+        all_transactions_data = []
+        
+        # Sync investment transactions
+        if sync_investment:
+            try:
+                investment_txns = self.plaid_client.get_investment_transactions(
+                    access_token,
+                    start_date.isoformat(),
+                    end_date.isoformat()
+                )
+                all_transactions_data.extend(investment_txns)
+            except Exception as e:
+                # If investment transactions fail (e.g., no investment accounts), continue
+                pass
+        
+        # Sync regular banking transactions
+        if sync_banking:
+            try:
+                # Get all accounts to find checking/savings accounts
+                accounts_data = self.plaid_client.get_accounts(access_token)
+                banking_account_ids = [
+                    acc["id"] for acc in accounts_data
+                    if acc["type"] in ["depository", "credit"]
+                ]
+                
+                if banking_account_ids:
+                    banking_txns = self.plaid_client.get_transactions(
+                        access_token,
+                        start_date.isoformat(),
+                        end_date.isoformat(),
+                        account_ids=banking_account_ids
+                    )
+                    all_transactions_data.extend(banking_txns)
+            except Exception as e:
+                # If banking transactions fail, continue
+                pass
+        
+        transactions_data = all_transactions_data
         
         synced_transactions = []
         
@@ -197,24 +234,81 @@ class PlaidSync:
             # Determine if cancelled
             is_cancelled = bool(txn_data.get("cancel_transaction_id"))
             
-            # Detect income/deposit transactions
-            # Investment transactions: dividends, interest, distributions are income
+            # Detect income/deposit/expense transactions
             txn_type = txn_data.get("type", "").lower()
             txn_subtype = txn_data.get("subtype", "").lower() if txn_data.get("subtype") else ""
             amount = Decimal(str(txn_data["amount"]))
+            primary_category = txn_data.get("primary_category")
+            detailed_category = txn_data.get("detailed_category")
             
             is_income = False
             is_deposit = False
+            is_expense = False
             is_paystub = False
             income_type = None
+            expense_category = None
+            expense_type = None
             
+            # For regular banking transactions: positive = income/deposit, negative = expense
+            # For investment transactions: use type/subtype
+            if txn_type in ["expense", "income"]:
+                # Regular banking transaction
+                if amount > 0:
+                    is_income = True
+                    is_deposit = True
+                    # Check for paystub
+                    name_lower = txn_data.get("name", "").lower()
+                    paystub_keywords = ["payroll", "paycheck", "salary", "wage", "pay stub", "direct deposit", "deposit"]
+                    if any(keyword in name_lower for keyword in paystub_keywords):
+                        is_paystub = True
+                        income_type = "salary"
+                    else:
+                        income_type = "deposit"
+                else:
+                    is_expense = True
+                    # Map Plaid categories to expense types
+                    if primary_category:
+                        expense_type = primary_category
+                        # Map to friendly expense categories
+                        category_map = {
+                            "FOOD_AND_DRINK": "food",
+                            "GENERAL_MERCHANDISE": "shopping",
+                            "GENERAL_SERVICES": "services",
+                            "GOVERNMENT_AND_NON_PROFIT": "government",
+                            "TRANSPORTATION": "transportation",
+                            "TRAVEL": "travel",
+                            "RENT_AND_UTILITIES": "bills",
+                            "PERSONAL_CARE": "personal",
+                            "ENTERTAINMENT": "entertainment",
+                            "GAS_STATIONS": "gas",
+                            "GROCERIES": "groceries",
+                        }
+                        # Check detailed category first for specific items
+                        if detailed_category:
+                            if "GROCERIES" in detailed_category:
+                                expense_category = "groceries"
+                            elif "GAS_STATIONS" in detailed_category:
+                                expense_category = "gas"
+                            elif "UTILITIES" in detailed_category or "RENT" in detailed_category:
+                                expense_category = "bills"
+                            elif "RESTAURANTS" in detailed_category:
+                                expense_category = "restaurants"
+                            else:
+                                expense_category = category_map.get(primary_category, primary_category.lower())
+                        else:
+                            expense_category = category_map.get(primary_category, primary_category.lower())
             # Investment income types
-            if txn_type in ["dividend", "interest", "distribution"]:
+            elif txn_type in ["dividend", "interest", "distribution"]:
                 is_income = True
                 income_type = txn_type
             elif txn_subtype in ["dividend", "interest", "long_term_capital_gain", "short_term_capital_gain"]:
                 is_income = True
                 income_type = txn_subtype
+            # Investment expenses (fees, etc.)
+            elif txn_type in ["fee"]:
+                is_expense = True
+                expense_category = "fees"
+                expense_type = "investment"
             # Deposits (positive amounts that aren't income)
             elif amount > 0 and txn_type in ["deposit", "transfer"]:
                 is_deposit = True
@@ -238,22 +332,33 @@ class PlaidSync:
                 transaction.subtype = txn_data.get("subtype")
                 # Don't overwrite user_category if it exists
                 if not transaction.user_category:
-                    transaction.category = txn_data.get("subtype")
+                    transaction.category = txn_data.get("detailed_category") or txn_data.get("primary_category") or txn_data.get("subtype")
+                transaction.primary_category = txn_data.get("primary_category")
+                transaction.detailed_category = txn_data.get("detailed_category")
                 transaction.quantity = Decimal(str(txn_data["quantity"])) if txn_data.get("quantity") else None
                 transaction.price = Decimal(str(txn_data["price"])) if txn_data.get("price") else None
                 transaction.fees = Decimal(str(txn_data["fees"])) if txn_data.get("fees") else None
                 transaction.security_id = txn_data.get("security_id")
+                transaction.merchant_name = txn_data.get("merchant_name") or transaction.merchant_name
+                transaction.location_city = txn_data.get("location_city") or transaction.location_city
+                transaction.location_region = txn_data.get("location_region") or transaction.location_region
+                transaction.location_country = txn_data.get("location_country") or transaction.location_country
+                transaction.location_address = txn_data.get("location_address") or transaction.location_address
+                transaction.location_postal_code = txn_data.get("location_postal_code") or transaction.location_postal_code
                 transaction.iso_currency_code = txn_data.get("iso_currency_code")
                 transaction.unofficial_currency_code = txn_data.get("unofficial_currency_code")
                 transaction.cancel_transaction_id = txn_data.get("cancel_transaction_id")
                 transaction.is_cancelled = is_cancelled
                 transaction.is_pending = txn_data.get("is_pending", False)
                 transaction.plaid_data = txn_data.get("plaid_data")
-                # Income/deposit classification
+                # Income/deposit/expense classification
                 transaction.is_income = is_income
                 transaction.is_deposit = is_deposit
+                transaction.is_expense = is_expense
                 transaction.is_paystub = is_paystub
                 transaction.income_type = income_type
+                transaction.expense_category = expense_category
+                transaction.expense_type = expense_type
                 transaction.updated_at = datetime.utcnow()
             else:
                 # Create new transaction
@@ -266,23 +371,34 @@ class PlaidSync:
                     amount=Decimal(str(txn_data["amount"])),
                     type=txn_data["type"],
                     subtype=txn_data.get("subtype"),
-                    category=txn_data.get("subtype"),  # Default to subtype, user can override
+                    category=txn_data.get("detailed_category") or txn_data.get("primary_category") or txn_data.get("subtype"),
+                    primary_category=txn_data.get("primary_category"),
+                    detailed_category=txn_data.get("detailed_category"),
                     quantity=Decimal(str(txn_data["quantity"])) if txn_data.get("quantity") else None,
                     price=Decimal(str(txn_data["price"])) if txn_data.get("price") else None,
                     fees=Decimal(str(txn_data["fees"])) if txn_data.get("fees") else None,
                     security_id=txn_data.get("security_id"),
                     ticker=None,  # Would need to look up from security
+                    merchant_name=txn_data.get("merchant_name"),
+                    location_city=txn_data.get("location_city"),
+                    location_region=txn_data.get("location_region"),
+                    location_country=txn_data.get("location_country"),
+                    location_address=txn_data.get("location_address"),
+                    location_postal_code=txn_data.get("location_postal_code"),
                     iso_currency_code=txn_data.get("iso_currency_code"),
                     unofficial_currency_code=txn_data.get("unofficial_currency_code"),
                     cancel_transaction_id=txn_data.get("cancel_transaction_id"),
                     is_cancelled=is_cancelled,
                     is_pending=txn_data.get("is_pending", False),
                     plaid_data=txn_data.get("plaid_data"),
-                    # Income/deposit classification
+                    # Income/deposit/expense classification
                     is_income=is_income,
                     is_deposit=is_deposit,
+                    is_expense=is_expense,
                     is_paystub=is_paystub,
                     income_type=income_type,
+                    expense_category=expense_category,
+                    expense_type=expense_type,
                 )
                 db.add(transaction)
             

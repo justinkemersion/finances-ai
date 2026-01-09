@@ -236,3 +236,127 @@ class PlaidClient:
             return transactions
         except Exception as e:
             raise Exception(f"Failed to get investment transactions: {str(e)}")
+    
+    def get_transactions(
+        self,
+        access_token: str,
+        start_date: str,
+        end_date: str,
+        account_ids: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get regular banking transactions (checking, savings, credit cards)
+        
+        Args:
+            access_token: Plaid access token
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+            account_ids: Optional list of account IDs to filter by
+            
+        Returns:
+            List of transaction dictionaries
+        """
+        try:
+            from datetime import datetime
+            from plaid.model.transactions_get_request import TransactionsGetRequest
+            from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
+            
+            # Convert string dates to date objects
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+            
+            # Build request options
+            options = TransactionsGetRequestOptions()
+            if account_ids:
+                options.account_ids = account_ids
+            
+            request = TransactionsGetRequest(
+                access_token=access_token,
+                start_date=start,
+                end_date=end,
+                options=options
+            )
+            
+            response = self.client.transactions_get(request)
+            
+            transactions = []
+            for txn in response.transactions:
+                # Extract all available data
+                txn_dict = txn.to_dict() if hasattr(txn, 'to_dict') else {}
+                
+                # Convert date/datetime objects to strings for JSON serialization
+                import json
+                from datetime import date, datetime
+                def json_serial(obj):
+                    """JSON serializer for objects not serializable by default json code"""
+                    if isinstance(obj, (datetime, date)):
+                        return obj.isoformat()
+                    raise TypeError(f"Type {type(obj)} not serializable")
+                
+                # Convert the dict to JSON and back to ensure all dates are strings
+                txn_dict_str = json.dumps(txn_dict, default=json_serial)
+                txn_dict = json.loads(txn_dict_str)
+                
+                # Extract personal finance category if available
+                personal_finance_category = None
+                primary_category = None
+                detailed_category = None
+                if hasattr(txn, 'personal_finance_category') and txn.personal_finance_category:
+                    personal_finance_category = txn.personal_finance_category
+                    if hasattr(personal_finance_category, 'primary'):
+                        primary_category = personal_finance_category.primary
+                    if hasattr(personal_finance_category, 'detailed'):
+                        detailed_category = personal_finance_category.detailed
+                
+                # Extract location if available
+                location = None
+                location_city = None
+                location_region = None
+                location_country = None
+                location_address = None
+                location_postal_code = None
+                if hasattr(txn, 'location') and txn.location:
+                    location = txn.location
+                    if hasattr(location, 'city'):
+                        location_city = location.city
+                    if hasattr(location, 'region'):
+                        location_region = location.region
+                    if hasattr(location, 'country'):
+                        location_country = location.country
+                    if hasattr(location, 'address'):
+                        location_address = location.address
+                    if hasattr(location, 'postal_code'):
+                        location_postal_code = location.postal_code
+                
+                # Extract merchant name
+                merchant_name = None
+                if hasattr(txn, 'merchant_name') and txn.merchant_name:
+                    merchant_name = txn.merchant_name
+                
+                transactions.append({
+                    "id": txn.transaction_id,
+                    "account_id": txn.account_id,
+                    "date": txn.date.isoformat() if hasattr(txn.date, "isoformat") else str(txn.date),
+                    "authorized_date": txn.authorized_date.isoformat() if hasattr(txn, 'authorized_date') and txn.authorized_date and hasattr(txn.authorized_date, 'isoformat') else None,
+                    "name": txn.name,
+                    "amount": float(txn.amount),
+                    "type": "expense" if txn.amount < 0 else "income",  # Regular transactions: negative = expense, positive = income
+                    "subtype": None,  # Regular transactions don't have investment subtypes
+                    "category": primary_category or (detailed_category if detailed_category else None),
+                    "primary_category": primary_category,
+                    "detailed_category": detailed_category,
+                    "merchant_name": merchant_name,
+                    "location_city": location_city,
+                    "location_region": location_region,
+                    "location_country": location_country,
+                    "location_address": location_address,
+                    "location_postal_code": location_postal_code,
+                    "iso_currency_code": txn.iso_currency_code if hasattr(txn, 'iso_currency_code') else None,
+                    "unofficial_currency_code": txn.unofficial_currency_code if hasattr(txn, 'unofficial_currency_code') else None,
+                    "is_pending": txn.pending if hasattr(txn, 'pending') else False,
+                    "plaid_data": txn_dict,
+                })
+            
+            return transactions
+        except Exception as e:
+            raise Exception(f"Failed to get transactions: {str(e)}")

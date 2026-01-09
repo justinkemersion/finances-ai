@@ -12,7 +12,7 @@ from ..database import SessionLocal, engine, Base
 from ..models import Account
 from ..plaid import PlaidClient, PlaidSync
 from ..queries import QueryHandler
-from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer, IncomeAnalyzer
+from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer, IncomeAnalyzer, ExpenseAnalyzer, ExpenseAnalyzer
 
 console = Console()
 
@@ -390,6 +390,122 @@ def get_token(institution_id: str):
         console.print(f"\n[bold]Access Token:[/bold] {access_token}")
         console.print(f"[bold]Item ID:[/bold] {item_id}")
         console.print("\n[bold]Next step:[/bold] Run sync command with these credentials")
+
+
+@cli.command()
+@click.option("--months", default=1, help="Number of months to show")
+@click.option("--account-id", help="Filter by account ID")
+@click.option("--category", help="Filter by expense category")
+def expenses(months: int, account_id: str, category: str):
+    """Show expense summary and breakdown"""
+    db = SessionLocal()
+    try:
+        summary = ExpenseAnalyzer.calculate_expense_summary(db, account_id=account_id)
+        monthly = ExpenseAnalyzer.get_monthly_expenses(db, months=months, account_id=account_id)
+        
+        # Summary table
+        table = Table(title="Expense Summary", box=box.ROUNDED)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="red", justify="right")
+        
+        table.add_row("Total Expenses", f"${summary['total_expenses']:,.2f}")
+        table.add_row("Transaction Count", str(summary['transaction_count']))
+        
+        console.print(table)
+        
+        # Expenses by category
+        if summary['by_category']:
+            cat_table = Table(title="Expenses by Category", box=box.ROUNDED)
+            cat_table.add_column("Category", style="cyan")
+            cat_table.add_column("Count", style="white", justify="right")
+            cat_table.add_column("Total", style="red", justify="right")
+            
+            for item in summary['by_category'][:15]:
+                cat_table.add_row(
+                    item['category'].title() if item['category'] else "Uncategorized",
+                    str(item['count']),
+                    f"${item['total']:,.2f}"
+                )
+            
+            console.print(cat_table)
+        
+        # Monthly breakdown
+        if monthly:
+            monthly_table = Table(title=f"Monthly Expenses ({months} months)", box=box.ROUNDED)
+            monthly_table.add_column("Month", style="cyan")
+            monthly_table.add_column("Count", style="white", justify="right")
+            monthly_table.add_column("Total", style="red", justify="right")
+            
+            for month_data in monthly:
+                monthly_table.add_row(
+                    month_data['month'],
+                    str(month_data['transaction_count']),
+                    f"${month_data['total_expenses']:,.2f}"
+                )
+            
+            console.print(monthly_table)
+    finally:
+        db.close()
+
+
+@cli.command()
+@click.option("--limit", default=20, help="Number of transactions to show")
+@click.option("--account-id", help="Filter by account ID")
+@click.option("--category", help="Filter by expense category")
+def spending(limit: int, account_id: str, category: str):
+    """List expense transactions"""
+    db = SessionLocal()
+    try:
+        expenses_list = ExpenseAnalyzer.get_expenses(db, account_id=account_id, expense_category=category)
+        
+        table = Table(title="Expenses", box=box.ROUNDED)
+        table.add_column("Date", style="cyan")
+        table.add_column("Merchant", style="white")
+        table.add_column("Amount", style="red", justify="right")
+        table.add_column("Category", style="yellow")
+        table.add_column("Account", style="yellow")
+        
+        for txn in expenses_list[:limit]:
+            account = db.query(Account).filter(Account.id == txn.account_id).first()
+            account_name = account.name if account else txn.account_id[:8]
+            
+            table.add_row(
+                txn.date.strftime("%Y-%m-%d"),
+                (txn.merchant_name or txn.name)[:30],
+                f"${abs(float(txn.amount)):,.2f}",
+                txn.expense_category or txn.primary_category or "uncategorized",
+                account_name
+            )
+        
+        console.print(table)
+        console.print(f"\n[dim]Showing {min(limit, len(expenses_list))} of {len(expenses_list)} expenses[/dim]")
+    finally:
+        db.close()
+
+
+@cli.command()
+@click.option("--limit", default=10, help="Number of merchants to show")
+def merchants(limit: int):
+    """Show top merchants by spending"""
+    db = SessionLocal()
+    try:
+        top_merchants = ExpenseAnalyzer.get_top_merchants(db, limit=limit)
+        
+        table = Table(title="Top Merchants", box=box.ROUNDED)
+        table.add_column("Merchant", style="cyan")
+        table.add_column("Transactions", style="white", justify="right")
+        table.add_column("Total Spent", style="red", justify="right")
+        
+        for merchant in top_merchants:
+            table.add_row(
+                merchant['merchant'] or "Unknown",
+                str(merchant['count']),
+                f"${merchant['total']:,.2f}"
+            )
+        
+        console.print(table)
+    finally:
+        db.close()
 
 
 @cli.command()

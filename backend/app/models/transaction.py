@@ -28,9 +28,11 @@ class Transaction(Base):
     unofficial_currency_code = Column(String, nullable=True)  # Non-standard currency
     
     # Transaction type
-    type = Column(String, nullable=False, index=True)  # e.g., "buy", "sell", "dividend", "fee"
+    type = Column(String, nullable=False, index=True)  # e.g., "buy", "sell", "dividend", "fee", "expense", "income"
     subtype = Column(String, nullable=True, index=True)  # More specific subtype from Plaid
     category = Column(String, nullable=True, index=True)  # User-defined or Plaid category
+    primary_category = Column(String, nullable=True, index=True)  # Plaid primary category (e.g., "FOOD_AND_DRINK")
+    detailed_category = Column(String, nullable=True, index=True)  # Plaid detailed category (e.g., "FOOD_AND_DRINK_GROCERIES")
     
     # Security information (if applicable)
     security_id = Column(String, nullable=True, index=True)
@@ -59,6 +61,11 @@ class Transaction(Base):
     is_paystub = Column(Boolean, default=False, index=True)  # Is this a payroll/paystub transaction?
     paystub_period_start = Column(DateTime, nullable=True)  # Pay period start date
     paystub_period_end = Column(DateTime, nullable=True)  # Pay period end date
+    
+    # Expense classification
+    is_expense = Column(Boolean, default=False, index=True)  # Is this an expense transaction?
+    expense_category = Column(String, nullable=True, index=True)  # Expense category (groceries, gas, bills, etc.)
+    expense_type = Column(String, nullable=True, index=True)  # Expense type (food, transportation, utilities, etc.)
     
     # User-defined categorization and analysis
     user_category = Column(String, nullable=True, index=True)  # User-assigned category
@@ -99,6 +106,10 @@ class Transaction(Base):
         Index("idx_transaction_deposit", "is_deposit"),
         Index("idx_transaction_income_type", "income_type"),
         Index("idx_transaction_paystub", "is_paystub"),
+        Index("idx_transaction_expense", "is_expense"),
+        Index("idx_transaction_expense_category", "expense_category"),
+        Index("idx_transaction_primary_category", "primary_category"),
+        Index("idx_transaction_detailed_category", "detailed_category"),
     )
     
     def __repr__(self):

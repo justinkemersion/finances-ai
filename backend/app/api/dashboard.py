@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from ..database import SessionLocal
 from ..models import Account, Holding, Transaction, NetWorthSnapshot
-from ..analytics import NetWorthAnalyzer, IncomeAnalyzer, AllocationAnalyzer
+from ..analytics import NetWorthAnalyzer, IncomeAnalyzer, AllocationAnalyzer, ExpenseAnalyzer
 
 
 def generate_dashboard_html() -> str:
@@ -426,6 +426,82 @@ def generate_dashboard_html() -> str:
                             <td class="positive">${float(txn.amount):,.2f}</td>
                             <td><span class="badge income">{txn.income_type or 'N/A'}</span></td>
                         </tr>''' for txn in income_txns])}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Expense Summary -->
+        <div class="card full-width">
+            <h2>💸 Expense Summary</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Count</th>
+                            <th>Total Spent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join([f'''
+                        <tr>
+                            <td><strong>{item['category'].title() if item['category'] else 'Uncategorized'}</strong></td>
+                            <td>{item['count']}</td>
+                            <td class="negative">${item['total']:,.2f}</td>
+                        </tr>''' for item in expense_summary['by_category'][:20]])}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Top Merchants -->
+        <div class="card full-width">
+            <h2>🏪 Top Merchants</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Merchant</th>
+                            <th>Transactions</th>
+                            <th>Total Spent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join([f'''
+                        <tr>
+                            <td><strong>{merchant['merchant'] or 'Unknown'}</strong></td>
+                            <td>{merchant['count']}</td>
+                            <td class="negative">${merchant['total']:,.2f}</td>
+                        </tr>''' for merchant in top_merchants])}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Expense Transactions -->
+        <div class="card full-width">
+            <h2>💸 Recent Expenses</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Merchant</th>
+                            <th>Amount</th>
+                            <th>Category</th>
+                            <th>Account</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join([f'''
+                        <tr>
+                            <td>{txn.date.strftime('%Y-%m-%d')}</td>
+                            <td>{(txn.merchant_name or txn.name)[:40]}</td>
+                            <td class="negative">${abs(float(txn.amount)):,.2f}</td>
+                            <td><span class="badge expense">{txn.expense_category or txn.primary_category or 'uncategorized'}</span></td>
+                            <td>{txn.account.name if txn.account else 'N/A'}</td>
+                        </tr>''' for txn in expense_txns])}
                     </tbody>
                 </table>
             </div>
