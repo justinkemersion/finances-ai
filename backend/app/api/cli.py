@@ -908,44 +908,65 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
                 # Multiple providers - show interactive selection
                 console.print("[bold cyan]🤖 Multiple AI providers detected. Choose one:[/bold cyan]\n")
                 
-                # Build selection table
-                selection_table = Table(show_header=False, box=box.SIMPLE)
-                selection_table.add_column("Choice", style="cyan", width=8)
+                # Build selection table with all sources shown individually
+                selection_table = Table(show_header=True, box=box.ROUNDED, title="Available AI Providers")
+                selection_table.add_column("#", style="cyan", width=4, justify="center")
                 selection_table.add_column("Provider", style="yellow", width=15)
-                selection_table.add_column("Source", style="dim", width=30)
+                selection_table.add_column("Source", style="dim", width=40)
                 
                 provider_map = {}
-                for idx, provider_option in enumerate(available_providers, 1):
-                    # Get all unique sources for this provider
+                choice_num = 1
+                for provider_option in available_providers:
                     sources = detected[provider_option]
-                    # Count unique sources
-                    unique_sources = set(s[0] for s in sources)
-                    source_display = f"{len(unique_sources)} source(s)" if len(unique_sources) > 1 else sources[0][0] if sources else "unknown"
-                    provider_map[str(idx)] = provider_option
                     
+                    # Show first source on main row
+                    first_source = sources[0][0] if sources else "unknown"
+                    provider_map[str(choice_num)] = (provider_option, 0)  # (provider, source_index)
                     selection_table.add_row(
-                        str(idx),
+                        str(choice_num),
                         provider_option.value.title(),
-                        source_display
+                        first_source
                     )
+                    
+                    # If multiple sources for same provider, show them as sub-options
+                    if len(sources) > 1:
+                        for source_idx in range(1, len(sources)):
+                            choice_num += 1
+                            source_name = sources[source_idx][0]
+                            provider_map[str(choice_num)] = (provider_option, source_idx)
+                            # Indicate sub-option
+                            display_name = f"  └─ {provider_option.value.title()}"
+                            selection_table.add_row(
+                                str(choice_num),
+                                display_name,
+                                source_name
+                            )
+                    
+                    choice_num += 1
                 
                 console.print(selection_table)
                 console.print()
                 
                 # Get user selection
+                max_choice = choice_num - 1
                 while True:
                     choice = Prompt.ask(
-                        f"[bold]Select provider[/bold] [cyan](1-{len(available_providers)})[/cyan]",
+                        f"[bold]Select provider[/bold] [cyan](1-{max_choice})[/cyan]",
                         default="1"
                     )
                     
                     if choice in provider_map:
-                        provider_enum = provider_map[choice]
+                        provider_enum, source_idx = provider_map[choice]
+                        # Get the specific API key for the selected source
+                        selected_api_key = AIConfig.get_api_key(provider_enum, source_index=source_idx)
+                        selected_source = detected[provider_enum][source_idx][0]
+                        console.print(f"[dim]Selected: {provider_enum.value.title()} ({selected_source})[/dim]\n")
                         break
                     else:
-                        console.print(f"[bold red]Invalid choice. Please enter 1-{len(available_providers)}[/bold red]")
-                
-                console.print(f"[dim]Selected: {provider_enum.value.title()}[/dim]\n")
+                        console.print(f"[bold red]Invalid choice. Please enter 1-{max_choice}[/bold red]")
+            else:
+                # Single provider - no selection needed
+                selected_api_key = None
         
         # Initialize AI client
         try:
