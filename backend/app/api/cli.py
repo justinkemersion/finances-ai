@@ -949,8 +949,8 @@ def ai(query: str, provider: str, api_key: str, model: str, full_data: bool, lis
         
         # Initialize AI client
         try:
-            # Use selected API key if we did interactive selection, otherwise use provided or auto-detect
-            final_api_key = api_key if api_key else (api_key if 'api_key' in locals() else None)
+            # Use provided API key if specified, otherwise use selected from interactive choice
+            final_api_key = api_key if api_key else (selected_api_key if 'selected_api_key' in locals() else None)
             ai_client = AIClient(
                 db=db,
                 provider=provider_enum,

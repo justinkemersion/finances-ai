@@ -163,16 +163,26 @@ class AIConfig:
                     content = f.read()
                     for provider, patterns in cls.PROVIDER_ENV_PATTERNS.items():
                         for pattern in patterns:
-                            # Look for export KEY=value patterns
-                            regex = re.compile(
-                                rf'export\s+{pattern}\s*=\s*["\']?([^"\'\n]+)["\']?',
-                                re.IGNORECASE | re.MULTILINE
-                            )
-                            matches = regex.findall(content)
-                            for key in matches:
-                                if provider not in detected:
-                                    detected[provider] = []
-                                detected[provider].append((f"shell:{config_file}", key.strip()))
+                            # Look for export KEY=value patterns (including commented ones)
+                            # First, find all lines (commented or not) with this pattern
+                            lines = content.split('\n')
+                            for line_num, line in enumerate(lines, 1):
+                                # Check for commented line (starts with #)
+                                is_commented = line.strip().startswith('#')
+                                line_stripped = line.strip().lstrip('#').strip()
+                                
+                                # Try to match export KEY=value pattern
+                                regex = re.compile(
+                                    rf'export\s+{pattern}\s*=\s*["\']?([^"\'\n]+)["\']?',
+                                    re.IGNORECASE
+                                )
+                                match = regex.search(line_stripped)
+                                if match:
+                                    key = match.group(1).strip()
+                                    source_label = f"shell:{config_file}" + (" (commented)" if is_commented else "")
+                                    if provider not in detected:
+                                        detected[provider] = []
+                                    detected[provider].append((source_label, key))
             except Exception:
                 continue
         
