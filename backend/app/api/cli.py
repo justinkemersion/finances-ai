@@ -293,6 +293,25 @@ def ask(query: tuple):
                             f"  {txn['date']}: ${txn['amount']:,.2f} "
                             f"({txn.get('category', 'uncategorized')})"
                         )
+            
+            elif intent == "lunch":
+                console.print(f"[bold yellow]Lunch Spending[/bold yellow]")
+                console.print(f"  Total: ${data['total']:,.2f}")
+                console.print(f"  Transactions: {data['count']}")
+                if data.get('merchant_breakdown'):
+                    console.print("\n[bold]By Merchant:[/bold]")
+                    for item in data['merchant_breakdown'][:10]:
+                        console.print(
+                            f"  {item['merchant']}: ${item['total']:,.2f} ({item['count']} transactions)"
+                        )
+                if data.get('transactions'):
+                    console.print("\n[bold]Recent Lunch Transactions:[/bold]")
+                    for txn in data['transactions'][:15]:
+                        time_str = f" @ {txn['time']}" if txn.get('time') else ""
+                        merchant_str = f" - {txn['merchant']}" if txn.get('merchant') else ""
+                        console.print(
+                            f"  {txn['date']}{time_str}{merchant_str}: ${txn['amount']:,.2f}"
+                        )
     finally:
         db.close()
 

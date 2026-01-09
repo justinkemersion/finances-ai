@@ -59,6 +59,8 @@ class QueryHandler:
             return self.handle_cash_flow(parsed)
         elif intent == QueryIntent.MERCHANT:
             return self.handle_merchant(parsed)
+        elif intent == QueryIntent.LUNCH:
+            return self.handle_lunch(parsed)
         else:
             return {
                 "error": "Could not understand query",
@@ -71,6 +73,7 @@ class QueryHandler:
                     "What are my dividends?",
                     "How's my cash flow?",
                     "How much at Starbucks?",
+                    "How much did I spend on lunch?",
                 ]
             }
     
@@ -505,6 +508,112 @@ class QueryHandler:
                         "category": txn.expense_category or txn.primary_category,
                     }
                     for txn in transactions[:20]
+                ],
+            }
+        }
+    
+    def handle_lunch(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle lunch spending queries - smart detection using time and merchant"""
+        time_range = parsed.get("time_range")
+        account_filter = parsed.get("account_filter")
+        account_id = None
+        
+        if account_filter:
+            account = self.db.query(Account).filter(
+                (Account.name.ilike(f"%{account_filter}%")) |
+                (Account.id == account_filter)
+            ).first()
+            if account:
+                account_id = account.id
+        
+        if not time_range:
+            from datetime import timedelta
+            time_range = (date.today() - timedelta(days=60), date.today())  # Default 2 months
+        
+        # Build query for lunch transactions
+        # Strategy: Filter by time of day (11am-2pm) OR known lunch merchants
+        from sqlalchemy import or_, func, extract
+        
+        query = self.db.query(Transaction).filter(
+            Transaction.is_expense == True,
+            Transaction.date >= time_range[0],
+            Transaction.date <= time_range[1]
+        )
+        
+        if account_id:
+            query = query.filter(Transaction.account_id == account_id)
+        
+        # Time-based filtering: lunch is typically 11am-2pm
+        # Check if transaction_datetime is available and in lunch hours
+        lunch_conditions = []
+        
+        # If transaction_datetime exists, filter by hour (11-14 = 11am-2pm)
+        lunch_conditions.append(
+            (Transaction.transaction_datetime.isnot(None)) &
+            (extract('hour', Transaction.transaction_datetime) >= 11) &
+            (extract('hour', Transaction.transaction_datetime) <= 14)
+        )
+        
+        # Also match known lunch merchants (case-insensitive)
+        lunch_merchant_patterns = IntentRouter.LUNCH_MERCHANTS
+        merchant_conditions = []
+        for merchant in lunch_merchant_patterns:
+            merchant_conditions.append(Transaction.merchant_name.ilike(f"%{merchant}%"))
+            merchant_conditions.append(Transaction.name.ilike(f"%{merchant}%"))
+        
+        # Combine: time-based OR merchant-based
+        if merchant_conditions:
+            lunch_conditions.append(or_(*merchant_conditions))
+        
+        # Apply the lunch filter
+        query = query.filter(or_(*lunch_conditions))
+        
+        # Also filter to restaurant/food categories to be safe
+        query = query.filter(
+            or_(
+                Transaction.expense_category.in_(["restaurants", "food"]),
+                Transaction.primary_category.ilike("%FOOD%"),
+                Transaction.detailed_category.ilike("%RESTAURANT%"),
+                Transaction.detailed_category.ilike("%FOOD%"),
+            )
+        )
+        
+        transactions = query.order_by(Transaction.date.desc()).all()
+        
+        total = sum(abs(float(txn.amount)) for txn in transactions)
+        
+        # Group by merchant for breakdown
+        merchant_totals = {}
+        for txn in transactions:
+            merchant = txn.merchant_name or txn.name
+            if merchant not in merchant_totals:
+                merchant_totals[merchant] = {"count": 0, "total": 0.0}
+            merchant_totals[merchant]["count"] += 1
+            merchant_totals[merchant]["total"] += abs(float(txn.amount))
+        
+        # Sort merchants by total
+        merchant_breakdown = sorted(
+            [{"merchant": k, **v} for k, v in merchant_totals.items()],
+            key=lambda x: x["total"],
+            reverse=True
+        )
+        
+        return {
+            "intent": "lunch",
+            "data": {
+                "total": total,
+                "count": len(transactions),
+                "merchant_breakdown": merchant_breakdown,
+                "transactions": [
+                    {
+                        "date": txn.date.isoformat(),
+                        "time": txn.transaction_datetime.strftime("%H:%M") if txn.transaction_datetime else None,
+                        "name": txn.name,
+                        "merchant": txn.merchant_name,
+                        "amount": float(abs(txn.amount)),
+                        "category": txn.expense_category or txn.primary_category,
+                    }
+                    for txn in transactions[:30]  # Limit to 30 for display
                 ],
             }
         }

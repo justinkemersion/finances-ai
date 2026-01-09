@@ -137,12 +137,57 @@ def inject_restaurant_transactions(db: Session, account: Account, start_date: da
     current_date = start_date
     transactions = []
     
-    for _ in range(count):
+    # Lunch merchants (for lunch detection)
+    lunch_merchants = ["Chipotle", "Firehouse Subs", "King Soupers", "Taco Bell", "Subway", "Panera"]
+    # Dinner/other restaurants
+    other_merchants = [m for m in RESTAURANT_MERCHANTS if m not in lunch_merchants]
+    
+    lunch_count = int(count * 0.6)  # 60% lunch, 40% other
+    other_count = count - lunch_count
+    
+    # Generate lunch transactions (11am-2pm)
+    for _ in range(lunch_count):
         if current_date > end_date:
             break
         
-        merchant = random.choice(RESTAURANT_MERCHANTS)
-        amount = Decimal(random.uniform(8, 45)).quantize(Decimal('0.01'))
+        merchant = random.choice(lunch_merchants)
+        amount = Decimal(random.uniform(8, 18)).quantize(Decimal('0.01'))  # Lunch is typically cheaper
+        
+        # Random time between 11am-2pm
+        lunch_hour = random.randint(11, 14)
+        lunch_minute = random.randint(0, 59)
+        transaction_time = datetime.combine(current_date, datetime.min.time().replace(hour=lunch_hour, minute=lunch_minute))
+        
+        txn = create_test_transaction(
+            db=db,
+            account=account,
+            date=current_date,
+            name=f"{merchant} - Lunch",
+            amount=-amount,
+            merchant_name=merchant,
+            expense_category="restaurants",
+            primary_category="FOOD_AND_DRINK",
+            detailed_category="FOOD_AND_DRINK_RESTAURANTS",
+            is_expense=True
+        )
+        txn.transaction_datetime = transaction_time
+        transactions.append(txn)
+        
+        days_offset = random.choice([1, 1, 1, 2, 2, 3])  # Lunch is more frequent
+        current_date += timedelta(days=days_offset)
+    
+    # Generate dinner/other restaurant transactions (evening times)
+    for _ in range(other_count):
+        if current_date > end_date:
+            break
+        
+        merchant = random.choice(other_merchants)
+        amount = Decimal(random.uniform(15, 45)).quantize(Decimal('0.01'))
+        
+        # Random time between 5pm-9pm (dinner)
+        dinner_hour = random.randint(17, 21)
+        dinner_minute = random.randint(0, 59)
+        transaction_time = datetime.combine(current_date, datetime.min.time().replace(hour=dinner_hour, minute=dinner_minute))
         
         txn = create_test_transaction(
             db=db,
@@ -156,9 +201,10 @@ def inject_restaurant_transactions(db: Session, account: Account, start_date: da
             detailed_category="FOOD_AND_DRINK_RESTAURANTS",
             is_expense=True
         )
+        txn.transaction_datetime = transaction_time
         transactions.append(txn)
         
-        days_offset = random.choice([1, 1, 2, 2, 3, 4])
+        days_offset = random.choice([2, 3, 4, 5, 6, 7])
         current_date += timedelta(days=days_offset)
     
     return transactions

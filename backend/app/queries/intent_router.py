@@ -19,6 +19,7 @@ class QueryIntent(Enum):
     DIVIDENDS = "dividends"
     CASH_FLOW = "cash_flow"
     MERCHANT = "merchant"
+    LUNCH = "lunch"
     UNKNOWN = "unknown"
 
 
@@ -121,6 +122,24 @@ class IntentRouter:
         r"purchases\s+from\s+(\w+)",
     ]
     
+    LUNCH_PATTERNS = [
+        r"lunch",
+        r"lunch\s+spending",
+        r"spent\s+on\s+lunch",
+        r"how\s+much\s+(?:did\s+i\s+)?spend\s+on\s+lunch",
+        r"lunch\s+expenses",
+        r"takeout\s+lunch",
+    ]
+    
+    # Common lunch merchants (can be customized)
+    LUNCH_MERCHANTS = [
+        "chipotle", "firehouse", "king soupers", "taco bell", "subway",
+        "panera", "jimmy johns", "potbelly", "qdoba", "moe's",
+        "panda express", "pita pit", "which wich", "jersey mike's",
+        "firehouse subs", "blaze pizza", "mod pizza", "papa johns",
+        "domino's", "pizza hut", "mcdonald's", "burger king", "wendy's",
+    ]
+    
     TIME_PATTERNS = [
         (r"last\s+month", lambda: (date.today() - timedelta(days=30), date.today())),
         (r"this\s+month", lambda: (date.today().replace(day=1), date.today())),
@@ -159,6 +178,11 @@ class IntentRouter:
         query_lower = query.lower()
         
         # Check patterns in order of specificity (most specific first)
+        # Lunch patterns (very specific - check before general categories)
+        for pattern in cls.LUNCH_PATTERNS:
+            if re.search(pattern, query_lower):
+                return QueryIntent.LUNCH
+        
         # Spending category patterns (very specific)
         for pattern in cls.SPENDING_CATEGORY_PATTERNS:
             if re.search(pattern, query_lower):
