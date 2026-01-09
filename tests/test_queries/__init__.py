@@ -1,1 +1,1 @@
-"""Tests for query system"""
+"""Tests for query processing modules"""
