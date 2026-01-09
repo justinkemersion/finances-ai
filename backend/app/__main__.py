@@ -1,6 +1,13 @@
 """CLI entry point"""
 
-from app.api.cli import cli
+import sys
+import os
 
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Prevent RuntimeWarning by ensuring clean import
 if __name__ == "__main__":
+    # Import here to avoid module conflicts
+    from backend.app.api.cli import cli
     cli()

@@ -672,5 +672,40 @@ def export(
         console.print(f"[bold red]❌ Error exporting data:[/bold red] {str(e)}")
 
 
+@cli.command()
+@click.option("--account-id", help="Account ID to inject data for (creates test account if not provided)")
+@click.option("--months", default=3, help="Number of months of data to generate")
+@click.option("--no-income", is_flag=True, help="Skip income transactions")
+def inject_test_data(account_id: str, months: int, no_income: bool):
+    """Inject realistic test data for testing natural language queries"""
+    from ..utils.inject_test_data import inject_test_data as inject_data
+    
+    db = SessionLocal()
+    try:
+        console.print("[bold blue]Injecting test data...[/bold blue]")
+        console.print(f"[dim]This will create realistic spending data (beer, restaurants, gas, groceries, bills)[/dim]")
+        
+        transactions = inject_data(
+            db=db,
+            account_id=account_id,
+            months_back=months,
+            include_income=not no_income
+        )
+        
+        console.print(f"\n[bold green]✓ Successfully created {len(transactions)} test transactions[/bold green]")
+        console.print("\n[bold]Try these queries:[/bold]")
+        console.print("  • 'how much did I spend on beer?'")
+        console.print("  • 'restaurant spending last month'")
+        console.print("  • 'how much at Starbucks?'")
+        console.print("  • 'what's my income?'")
+        console.print("  • 'gas expenses'")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Error injecting test data:[/bold red] {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     cli()
