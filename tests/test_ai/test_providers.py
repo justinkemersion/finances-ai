@@ -189,9 +189,9 @@ class TestGoogleProvider:
             mock_genai.configure = Mock()
             provider = GoogleProvider("test_key")
             provider.client = mock_model
-                
-                response = provider.query("test query", context={"data": "test"})
-                assert response == "Test response"
+            
+            response = provider.query("test query", context={"data": "test"})
+            assert response == "Test response"
     
     def test_available_models(self):
         """Test that available models are defined"""
