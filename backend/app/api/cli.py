@@ -1,6 +1,7 @@
 """CLI interface for Finance AI Analyzer"""
 
 import click
+import os
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -389,6 +390,21 @@ def get_token(institution_id: str):
         console.print(f"\n[bold]Access Token:[/bold] {access_token}")
         console.print(f"[bold]Item ID:[/bold] {item_id}")
         console.print("\n[bold]Next step:[/bold] Run sync command with these credentials")
+
+
+@cli.command()
+@click.option("--output", default="dashboard.html", help="Output file path")
+def dashboard(output: str):
+    """Generate HTML dashboard with financial data"""
+    from .dashboard import save_dashboard
+    
+    console.print("[bold blue]Generating dashboard...[/bold blue]")
+    try:
+        output_path = save_dashboard(output)
+        console.print(f"[bold green]✓ Dashboard generated:[/bold green] {output_path}")
+        console.print(f"\n[bold]Open in browser:[/bold] file://{os.path.abspath(output_path)}")
+    except Exception as e:
+        console.print(f"[bold red]❌ Error generating dashboard:[/bold red] {str(e)}")
 
 
 if __name__ == "__main__":

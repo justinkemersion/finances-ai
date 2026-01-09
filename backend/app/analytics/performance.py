@@ -62,7 +62,7 @@ class PerformanceAnalyzer:
         years = days / 365.25
         
         # Annualized return (if period is less than a year, extrapolate)
-        annualized_return = (percent_return / years) if years > 0 else percent_return
+        annualized_return = (percent_return / Decimal(str(years))) if years > 0 else percent_return
         
         return {
             "start_date": start_date.isoformat(),

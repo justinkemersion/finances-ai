@@ -56,3 +56,6 @@ migrations/versions/*.pyc
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Generated files
+dashboard.html
