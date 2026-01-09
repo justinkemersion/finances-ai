@@ -378,6 +378,7 @@ pytest
 - **[PLAID_SETUP.md](PLAID_SETUP.md)** - Plaid account setup guide
 - **[GET_TOKEN.md](GET_TOKEN.md)** - Getting Plaid access tokens
 - **[TRANSACTION_ANALYSIS.md](TRANSACTION_ANALYSIS.md)** - Transaction data model details
+- **[EXPORT_GUIDE.md](EXPORT_GUIDE.md)** - Guide for exporting data to use with LLMs
 
 ---
 
