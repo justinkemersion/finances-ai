@@ -113,7 +113,7 @@ python -m backend.app.api.cli ask "income vs expenses this month"
 - "Lunch expenses past 2 months"
 
 **Smart Detection**:
-- **Time-based**: Automatically filters transactions between 11am-2pm
+- **Time-based**: Automatically filters transactions between 11am-2:30pm
 - **Merchant-based**: Recognizes common lunch places (Chipotle, Firehouse Subs, King Soupers, Taco Bell, Subway, Panera, etc.)
 - **Robust**: Uses merchant matching when transaction time is unavailable
 - **Combined**: Both methods work together for maximum accuracy

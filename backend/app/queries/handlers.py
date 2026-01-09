@@ -650,11 +650,17 @@ class QueryHandler:
         # Initial filter: time-based OR merchant-based OR category-based
         lunch_conditions = []
         
-        # Time-based: lunch hours
+        # Time-based: lunch hours (11am-2:30pm)
         lunch_conditions.append(
             (Transaction.transaction_datetime.isnot(None)) &
-            (extract('hour', Transaction.transaction_datetime) >= 11) &
-            (extract('hour', Transaction.transaction_datetime) <= 14)
+            (
+                # 11am-1:59pm (any minute)
+                ((extract('hour', Transaction.transaction_datetime) >= 11) &
+                 (extract('hour', Transaction.transaction_datetime) < 14)) |
+                # 2:00pm-2:30pm (14:00-14:30)
+                ((extract('hour', Transaction.transaction_datetime) == 14) &
+                 (extract('minute', Transaction.transaction_datetime) <= 30))
+            )
         )
         
         # Known lunch merchants
