@@ -523,5 +523,78 @@ def dashboard(output: str):
         console.print(f"[bold red]❌ Error generating dashboard:[/bold red] {str(e)}")
 
 
+@cli.command()
+@click.option("--output", default="finance_export.json", help="Output JSON file path")
+@click.option("--start-date", help="Start date for transactions (YYYY-MM-DD)")
+@click.option("--end-date", help="End date for transactions (YYYY-MM-DD)")
+@click.option("--account-id", help="Filter by account ID")
+@click.option("--transaction-type", help="Filter by transaction type")
+@click.option("--no-accounts", is_flag=True, help="Exclude accounts from export")
+@click.option("--no-holdings", is_flag=True, help="Exclude holdings from export")
+@click.option("--no-transactions", is_flag=True, help="Exclude transactions from export")
+@click.option("--no-net-worth", is_flag=True, help="Exclude net worth snapshots from export")
+@click.option("--no-summary", is_flag=True, help="Exclude summary statistics from export")
+@click.option("--no-investment-txns", is_flag=True, help="Exclude investment transactions")
+@click.option("--no-banking-txns", is_flag=True, help="Exclude banking transactions")
+@click.option("--no-pending", is_flag=True, help="Exclude pending transactions")
+@click.option("--include-inactive", is_flag=True, help="Include inactive accounts")
+def export(
+    output: str,
+    start_date: str,
+    end_date: str,
+    account_id: str,
+    transaction_type: str,
+    no_accounts: bool,
+    no_holdings: bool,
+    no_transactions: bool,
+    no_net_worth: bool,
+    no_summary: bool,
+    no_investment_txns: bool,
+    no_banking_txns: bool,
+    no_pending: bool,
+    include_inactive: bool
+):
+    """Export database to JSON format for LLM analysis (ChatGPT, Claude, etc.)"""
+    from .export import export_to_json
+    from datetime import datetime
+    
+    console.print("[bold blue]Exporting database to JSON...[/bold blue]")
+    
+    try:
+        # Parse dates
+        start_date_obj = None
+        if start_date:
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+        
+        end_date_obj = None
+        if end_date:
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+        
+        output_path = export_to_json(
+            output_path=output,
+            include_accounts=not no_accounts,
+            include_holdings=not no_holdings,
+            include_transactions=not no_transactions,
+            include_net_worth=not no_net_worth,
+            include_summary=not no_summary,
+            start_date=start_date_obj,
+            end_date=end_date_obj,
+            account_id=account_id,
+            transaction_type=transaction_type,
+            include_investment_txns=not no_investment_txns,
+            include_banking_txns=not no_banking_txns,
+            include_pending=not no_pending,
+            include_inactive_accounts=include_inactive
+        )
+        
+        console.print(f"[bold green]✓ Export completed:[/bold green] {output_path}")
+        console.print(f"\n[bold]File size:[/bold] {os.path.getsize(output_path) / 1024:.2f} KB")
+        console.print(f"\n[bold]You can now upload this file to ChatGPT, Claude, or other LLMs for analysis.[/bold]")
+        console.print(f"\n[dim]Tip: Use --start-date and --end-date to export specific time periods[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Error exporting data:[/bold red] {str(e)}")
+
+
 if __name__ == "__main__":
     cli()
