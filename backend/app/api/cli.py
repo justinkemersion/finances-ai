@@ -246,5 +246,28 @@ def accounts():
         db.close()
 
 
+@cli.command()
+@click.option("--institution-id", default="ins_109508", help="Institution ID for sandbox (default: test bank)")
+def get_token(institution_id: str):
+    """Test Plaid connection and create a sandbox item to get access token"""
+    from ..plaid.test_connection import test_plaid_connection, create_sandbox_item
+    
+    console.print("[bold blue]Testing Plaid connection...[/bold blue]")
+    
+    success, client = test_plaid_connection()
+    if not success:
+        console.print("[bold red]❌ Failed to connect to Plaid. Check your credentials in .env[/bold red]")
+        return
+    
+    console.print("\n[bold blue]Creating sandbox test item...[/bold blue]")
+    access_token, item_id = create_sandbox_item(client, institution_id)
+    
+    if access_token and item_id:
+        console.print("\n[bold green]✓ Success![/bold green]")
+        console.print(f"\n[bold]Access Token:[/bold] {access_token}")
+        console.print(f"[bold]Item ID:[/bold] {item_id}")
+        console.print("\n[bold]Next step:[/bold] Run sync command with these credentials")
+
+
 if __name__ == "__main__":
     cli()

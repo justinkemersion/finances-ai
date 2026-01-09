@@ -3,6 +3,7 @@
 from plaid.api import plaid_api
 from plaid.configuration import Configuration
 from plaid.api_client import ApiClient
+from plaid import Environment
 from typing import Optional, Dict, Any, List
 import json
 from ..config import config
@@ -33,10 +34,12 @@ class PlaidClient:
             raise ValueError("Plaid client_id and secret must be provided")
         
         # Map environment string to Plaid host
+        # Note: Plaid SDK only has Sandbox and Production
+        # "development" maps to Production environment
         host_map = {
-            "sandbox": plaid_api.Environment.sandbox,
-            "development": plaid_api.Environment.development,
-            "production": plaid_api.Environment.production,
+            "sandbox": Environment.Sandbox,
+            "development": Environment.Production,  # Development uses Production endpoint
+            "production": Environment.Production,
         }
         
         plaid_host = host_map.get(self.environment.lower())
@@ -66,11 +69,10 @@ class PlaidClient:
             List of account dictionaries
         """
         try:
-            response = self.client.accounts_get(
-                accounts_get_request={
-                    "access_token": access_token
-                }
-            )
+            from plaid.model.accounts_get_request import AccountsGetRequest
+            
+            request = AccountsGetRequest(access_token=access_token)
+            response = self.client.accounts_get(request)
             return [
                 {
                     "id": acc.account_id,
@@ -104,11 +106,10 @@ class PlaidClient:
             Dictionary with accounts, holdings, and securities
         """
         try:
-            response = self.client.investments_holdings_get(
-                investment_holdings_get_request={
-                    "access_token": access_token
-                }
-            )
+            from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
+            
+            request = InvestmentsHoldingsGetRequest(access_token=access_token)
+            response = self.client.investments_holdings_get(request)
             
             # Convert to more usable format
             securities_map = {
@@ -134,8 +135,8 @@ class PlaidClient:
                 holdings_by_account[account_id].append({
                     "account_id": account_id,
                     "security_id": holding.security_id,
-                    "quantity": float(holding.quantity),
-                    "price": float(holding.price) if holding.price else None,
+                    "quantity": float(holding.quantity) if holding.quantity else 0.0,
+                    "price": float(holding.institution_price) if hasattr(holding, 'institution_price') and holding.institution_price else None,
                     "value": float(holding.institution_value) if holding.institution_value else None,
                     "cost_basis": float(holding.cost_basis) if holding.cost_basis else None,
                     "security": security,
@@ -176,17 +177,18 @@ class PlaidClient:
         try:
             from datetime import datetime
             
+            from plaid.model.investments_transactions_get_request import InvestmentsTransactionsGetRequest
+            
             # Convert string dates to date objects
             start = datetime.strptime(start_date, "%Y-%m-%d").date()
             end = datetime.strptime(end_date, "%Y-%m-%d").date()
             
-            response = self.client.investments_transactions_get(
-                investment_transactions_get_request={
-                    "access_token": access_token,
-                    "start_date": start,
-                    "end_date": end,
-                }
+            request = InvestmentsTransactionsGetRequest(
+                access_token=access_token,
+                start_date=start,
+                end_date=end
             )
+            response = self.client.investments_transactions_get(request)
             
             transactions = []
             for txn in response.investment_transactions:
