@@ -192,18 +192,32 @@ class PlaidClient:
             
             transactions = []
             for txn in response.investment_transactions:
+                # Extract all available data for comprehensive analysis
+                txn_dict = txn.to_dict() if hasattr(txn, 'to_dict') else {}
+                
+                # Parse transaction datetime if available
+                transaction_datetime = None
+                if hasattr(txn, 'transaction_datetime') and txn.transaction_datetime:
+                    transaction_datetime = txn.transaction_datetime.isoformat() if hasattr(txn.transaction_datetime, 'isoformat') else str(txn.transaction_datetime)
+                
                 transactions.append({
                     "id": txn.investment_transaction_id,
                     "account_id": txn.account_id,
                     "date": txn.date.isoformat() if hasattr(txn.date, "isoformat") else str(txn.date),
+                    "transaction_datetime": transaction_datetime,
                     "name": txn.name,
                     "amount": float(txn.amount),
                     "type": txn.type.value if hasattr(txn.type, "value") else str(txn.type),
                     "subtype": txn.subtype.value if hasattr(txn.subtype, "value") else str(txn.subtype) if txn.subtype else None,
                     "quantity": float(txn.quantity) if txn.quantity else None,
                     "price": float(txn.price) if txn.price else None,
+                    "fees": float(txn.fees) if hasattr(txn, 'fees') and txn.fees else None,
                     "security_id": txn.security_id,
-                    "is_pending": txn.iso_currency_code is not None,  # Approximate
+                    "iso_currency_code": txn.iso_currency_code if hasattr(txn, 'iso_currency_code') else None,
+                    "unofficial_currency_code": txn.unofficial_currency_code if hasattr(txn, 'unofficial_currency_code') else None,
+                    "cancel_transaction_id": txn.cancel_transaction_id if hasattr(txn, 'cancel_transaction_id') and txn.cancel_transaction_id else None,
+                    "is_pending": False,  # Investment transactions are typically not pending
+                    "plaid_data": txn_dict,  # Store full raw data for future analysis
                 })
             
             return transactions

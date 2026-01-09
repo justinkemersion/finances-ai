@@ -185,32 +185,63 @@ class PlaidSync:
                 Transaction.id == txn_data["id"]
             ).first()
             
+            # Parse dates
+            txn_date = datetime.fromisoformat(txn_data["date"]).date() if isinstance(txn_data["date"], str) else txn_data["date"]
+            txn_datetime = None
+            if txn_data.get("transaction_datetime"):
+                if isinstance(txn_data["transaction_datetime"], str):
+                    txn_datetime = datetime.fromisoformat(txn_data["transaction_datetime"].replace('Z', '+00:00'))
+                else:
+                    txn_datetime = txn_data["transaction_datetime"]
+            
+            # Determine if cancelled
+            is_cancelled = bool(txn_data.get("cancel_transaction_id"))
+            
             if transaction:
-                # Update existing transaction
-                transaction.date = datetime.fromisoformat(txn_data["date"]).date() if isinstance(txn_data["date"], str) else txn_data["date"]
+                # Update existing transaction (preserve user-defined fields)
+                transaction.date = txn_date
+                transaction.transaction_datetime = txn_datetime
                 transaction.name = txn_data["name"]
                 transaction.amount = Decimal(str(txn_data["amount"]))
                 transaction.type = txn_data["type"]
-                transaction.category = txn_data.get("subtype")
+                transaction.subtype = txn_data.get("subtype")
+                # Don't overwrite user_category if it exists
+                if not transaction.user_category:
+                    transaction.category = txn_data.get("subtype")
                 transaction.quantity = Decimal(str(txn_data["quantity"])) if txn_data.get("quantity") else None
                 transaction.price = Decimal(str(txn_data["price"])) if txn_data.get("price") else None
+                transaction.fees = Decimal(str(txn_data["fees"])) if txn_data.get("fees") else None
                 transaction.security_id = txn_data.get("security_id")
+                transaction.iso_currency_code = txn_data.get("iso_currency_code")
+                transaction.unofficial_currency_code = txn_data.get("unofficial_currency_code")
+                transaction.cancel_transaction_id = txn_data.get("cancel_transaction_id")
+                transaction.is_cancelled = is_cancelled
+                transaction.is_pending = txn_data.get("is_pending", False)
+                transaction.plaid_data = txn_data.get("plaid_data")
                 transaction.updated_at = datetime.utcnow()
             else:
                 # Create new transaction
                 transaction = Transaction(
                     id=txn_data["id"],
                     account_id=txn_data["account_id"],
-                    date=datetime.fromisoformat(txn_data["date"]).date() if isinstance(txn_data["date"], str) else txn_data["date"],
+                    date=txn_date,
+                    transaction_datetime=txn_datetime,
                     name=txn_data["name"],
                     amount=Decimal(str(txn_data["amount"])),
                     type=txn_data["type"],
-                    category=txn_data.get("subtype"),
+                    subtype=txn_data.get("subtype"),
+                    category=txn_data.get("subtype"),  # Default to subtype, user can override
                     quantity=Decimal(str(txn_data["quantity"])) if txn_data.get("quantity") else None,
                     price=Decimal(str(txn_data["price"])) if txn_data.get("price") else None,
+                    fees=Decimal(str(txn_data["fees"])) if txn_data.get("fees") else None,
                     security_id=txn_data.get("security_id"),
                     ticker=None,  # Would need to look up from security
+                    iso_currency_code=txn_data.get("iso_currency_code"),
+                    unofficial_currency_code=txn_data.get("unofficial_currency_code"),
+                    cancel_transaction_id=txn_data.get("cancel_transaction_id"),
+                    is_cancelled=is_cancelled,
                     is_pending=txn_data.get("is_pending", False),
+                    plaid_data=txn_data.get("plaid_data"),
                 )
                 db.add(transaction)
             
