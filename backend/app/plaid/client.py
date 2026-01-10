@@ -360,3 +360,73 @@ class PlaidClient:
             return transactions
         except Exception as e:
             raise Exception(f"Failed to get transactions: {str(e)}")
+    
+    def create_link_token(self, redirect_uri: Optional[str] = None) -> str:
+        """
+        Create a link token for Plaid Link
+        
+        Args:
+            redirect_uri: Optional URI to redirect to after Plaid Link completes.
+                         If None, no redirect URI is included (for Hosted Link or manual token handling).
+                         If provided, must be whitelisted in Plaid Dashboard.
+            
+        Returns:
+            Link token string
+        """
+        try:
+            from plaid.model.link_token_create_request import LinkTokenCreateRequest
+            from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+            from plaid.model.products import Products
+            from plaid.model.country_code import CountryCode
+            
+            # Create user object (minimal required)
+            user = LinkTokenCreateRequestUser(client_user_id="cli-user")
+            
+            # Create link token request
+            request_kwargs = {
+                "products": [Products('investments'), Products('transactions')],
+                "client_name": "Finance AI Analyzer",
+                "country_codes": [CountryCode('US')],
+                "language": 'en',
+                "user": user,
+            }
+            
+            # Only include redirect_uri if provided
+            if redirect_uri:
+                request_kwargs["redirect_uri"] = redirect_uri
+            
+            request = LinkTokenCreateRequest(**request_kwargs)
+            
+            response = self.client.link_token_create(request)
+            return response.link_token
+        except Exception as e:
+            error_msg = str(e)
+            # Provide helpful error message for redirect URI issues
+            if "redirect URI" in error_msg.lower() or "INVALID_FIELD" in error_msg:
+                raise Exception(
+                    f"Failed to create link token: {error_msg}\n\n"
+                    "💡 To fix this:\n"
+                    "1. Go to https://dashboard.plaid.com/team/api\n"
+                    f"2. Add '{redirect_uri}' to 'Allowed redirect URIs'\n"
+                    "3. Or use --no-redirect to use Hosted Link (no redirect URI needed)"
+                )
+            raise Exception(f"Failed to create link token: {error_msg}")
+    
+    def exchange_public_token(self, public_token: str) -> tuple[str, str]:
+        """
+        Exchange a public token for an access token
+        
+        Args:
+            public_token: Public token from Plaid Link
+            
+        Returns:
+            Tuple of (access_token, item_id)
+        """
+        try:
+            from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
+            
+            request = ItemPublicTokenExchangeRequest(public_token=public_token)
+            response = self.client.item_public_token_exchange(request)
+            return response.access_token, response.item_id
+        except Exception as e:
+            raise Exception(f"Failed to exchange public token: {str(e)}")

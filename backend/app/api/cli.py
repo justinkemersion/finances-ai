@@ -515,6 +515,169 @@ def get_token(institution_id: str):
 
 
 @cli.command()
+@click.option("--port", default=8080, help="Port for local web server (default: 8080)")
+@click.option("--no-browser", is_flag=True, help="Don't automatically open browser")
+@click.option("--no-redirect", is_flag=True, help="Use Hosted Link (no redirect URI configuration needed)")
+def connect_bank(port: int, no_browser: bool, no_redirect: bool):
+    """Connect a real bank account using Plaid Link
+    
+    This command will:
+    1. Create a Plaid link token
+    2. Start a local web server (or use Hosted Link)
+    3. Open your browser to connect your bank
+    4. Exchange the token and save your credentials
+    
+    By default, uses a local server with redirect URI. If you get a redirect URI error,
+    use --no-redirect to use Plaid Hosted Link instead (no dashboard configuration needed).
+    """
+    import webbrowser
+    import time
+    from ..plaid.client import PlaidClient
+    from ..plaid.link_server import start_link_server
+    
+    console.print("[bold blue]🔗 Setting up bank connection...[/bold blue]")
+    
+    # Initialize Plaid client
+    try:
+        plaid_client = PlaidClient()
+    except Exception as e:
+        console.print(f"[bold red]❌ Failed to initialize Plaid client: {str(e)}[/bold red]")
+        console.print("[yellow]Make sure your Plaid credentials are set in .env[/yellow]")
+        return
+    
+    # Create link token
+    redirect_uri = None if no_redirect else f"http://localhost:{port}/success"
+    try:
+        console.print("[bold blue]Creating link token...[/bold blue]")
+        if no_redirect:
+            console.print("[dim]Using Hosted Link (no redirect URI required)[/dim]")
+        link_token = plaid_client.create_link_token(redirect_uri)
+        console.print("[bold green]✓ Link token created[/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]❌ Failed to create link token: {str(e)}[/bold red]")
+        if "redirect URI" in str(e).lower() and not no_redirect:
+            console.print("\n[yellow]💡 Try using --no-redirect to use Hosted Link instead[/yellow]")
+            console.print("[yellow]   Or add the redirect URI to your Plaid Dashboard:[/yellow]")
+            console.print(f"[yellow]   https://dashboard.plaid.com/team/api → Allowed redirect URIs → Add: {redirect_uri}[/yellow]")
+        return
+    
+    # Store result
+    result = {"access_token": None, "item_id": None, "error": None}
+    
+    def on_success(public_token: str):
+        """Callback when user successfully connects"""
+        try:
+            console.print("\n[bold blue]Exchanging public token for access token...[/bold blue]")
+            access_token, item_id = plaid_client.exchange_public_token(public_token)
+            result["access_token"] = access_token
+            result["item_id"] = item_id
+            console.print("[bold green]✓ Token exchanged successfully![/bold green]")
+            return access_token, item_id
+        except Exception as e:
+            result["error"] = str(e)
+            console.print(f"[bold red]❌ Failed to exchange token: {str(e)}[/bold red]")
+            raise
+    
+    # Start web server
+    try:
+        console.print(f"[bold blue]Starting local web server on port {port}...[/bold blue]")
+        server, thread = start_link_server(link_token, on_success, port)
+        console.print("[bold green]✓ Server started[/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]❌ Failed to start server: {str(e)}[/bold red]")
+        if "Address already in use" in str(e):
+            console.print(f"[yellow]💡 Port {port} is already in use. Try a different port with --port[/yellow]")
+        return
+    
+    # Open browser
+    if no_redirect:
+        # Use Plaid Hosted Link
+        hosted_link_url = f"https://link.plaid.com/?link_token={link_token}"
+        url = hosted_link_url
+        console.print(f"\n[bold cyan]Opening Plaid Hosted Link...[/bold cyan]")
+        console.print("[yellow]After connecting, you'll need to manually copy the public_token from the callback URL[/yellow]")
+        console.print("[yellow]Or check the Plaid Dashboard for your access_token[/yellow]")
+    else:
+        url = f"http://localhost:{port}"
+        console.print(f"\n[bold cyan]Opening browser to {url}[/bold cyan]")
+        console.print("[yellow]If the browser doesn't open automatically, visit the URL above[/yellow]")
+    
+    if not no_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            console.print(f"[yellow]Could not open browser automatically. Please visit: {url}[/yellow]")
+    
+    if no_redirect:
+        # For Hosted Link, we can't automatically capture the token
+        console.print("\n[yellow]⚠️  Hosted Link mode: Token exchange must be done manually[/yellow]")
+        console.print("[yellow]After connecting in the browser:[/yellow]")
+        console.print("[yellow]1. The URL will contain a public_token parameter[/yellow]")
+        console.print("[yellow]2. Copy that public_token and run:[/yellow]")
+        console.print("[cyan]   python -m backend.app.api.cli exchange-token <public_token>[/cyan]")
+        console.print("\n[yellow]Or find your access_token in the Plaid Dashboard:[/yellow]")
+        console.print("[cyan]   https://dashboard.plaid.com/ → Items[/cyan]")
+        return
+    
+    console.print("\n[bold]Waiting for you to connect your bank account...[/bold]")
+    console.print("[dim]Press Ctrl+C to cancel[/dim]\n")
+    
+    # Wait for connection
+    try:
+        while result["access_token"] is None and result["error"] is None:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Cancelled by user[/yellow]")
+        server.shutdown()
+        return
+    
+    # Shutdown server
+    server.shutdown()
+    
+    # Display results
+    if result["error"]:
+        console.print(f"\n[bold red]❌ Connection failed: {result['error']}[/bold red]")
+        return
+    
+    if result["access_token"] and result["item_id"]:
+        console.print("\n" + "="*60)
+        console.print("[bold green]✓ Bank Account Connected Successfully![/bold green]")
+        console.print("="*60)
+        console.print(f"\n[bold]Access Token:[/bold] {result['access_token']}")
+        console.print(f"[bold]Item ID:[/bold] {result['item_id']}")
+        console.print("\n[bold]Next step:[/bold] Run sync command with these credentials:")
+        console.print(f"[cyan]python -m backend.app.api.cli sync --access-token {result['access_token']} --item-id {result['item_id']}[/cyan]")
+        console.print("="*60)
+
+
+@cli.command()
+@click.argument("public_token", required=True)
+def exchange_token(public_token: str):
+    """Exchange a Plaid public_token for an access_token
+    
+    Use this if you got a public_token from Plaid Hosted Link or another source.
+    """
+    from ..plaid.client import PlaidClient
+    
+    console.print("[bold blue]Exchanging public token for access token...[/bold blue]")
+    
+    try:
+        plaid_client = PlaidClient()
+        access_token, item_id = plaid_client.exchange_public_token(public_token)
+        
+        console.print("\n" + "="*60)
+        console.print("[bold green]✓ Token Exchanged Successfully![/bold green]")
+        console.print("="*60)
+        console.print(f"\n[bold]Access Token:[/bold] {access_token}")
+        console.print(f"[bold]Item ID:[/bold] {item_id}")
+        console.print("\n[bold]Next step:[/bold] Run sync command with these credentials:")
+        console.print(f"[cyan]python -m backend.app.api.cli sync --access-token {access_token} --item-id {item_id}[/cyan]")
+        console.print("="*60)
+    except Exception as e:
+        console.print(f"[bold red]❌ Failed to exchange token: {str(e)}[/bold red]")
+
+
+@cli.command()
 @click.option("--months", default=1, help="Number of months to show")
 @click.option("--account-id", help="Filter by account ID")
 @click.option("--category", help="Filter by expense category")

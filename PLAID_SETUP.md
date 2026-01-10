@@ -54,25 +54,39 @@ PLAID_ENV=sandbox  # Use 'sandbox' for testing
 
 ### 5. Testing the Connection
 
-After setting up your `.env` file, you can test the Plaid connection. However, to actually connect a bank account, you'll need to:
+After setting up your `.env` file, you can test the Plaid connection:
 
-1. Use Plaid Link (their frontend component) to get an `access_token`
-2. Or use their API to create a test item in sandbox mode
+```bash
+python -m backend.app.api.cli get-token
+```
+
+This creates a sandbox test item for testing.
 
 ### 6. Getting an Access Token
 
-For **Sandbox testing**, you can create a test item directly:
+#### For Sandbox Testing
 
-```python
-# This would be done through Plaid Link in a real app
-# For sandbox, you can use their test credentials
+Create a test item directly (no real bank connection needed):
+
+```bash
+python -m backend.app.api.cli get-token
 ```
 
-For **real connections**, you'll need to:
-1. Implement Plaid Link in your frontend (or use their API)
-2. User goes through OAuth flow
-3. You receive an `access_token` for that connection
-4. Use that token to sync data
+#### For Real Bank Connections
+
+Use the built-in `connect-bank` command:
+
+```bash
+python -m backend.app.api.cli connect-bank
+```
+
+This will:
+1. Create a Plaid link token
+2. Start a local web server
+3. Open your browser to connect your bank
+4. Exchange the token and display your credentials
+
+See [GET_TOKEN.md](GET_TOKEN.md) for detailed instructions.
 
 ### 7. Charles Schwab Specific Notes
 

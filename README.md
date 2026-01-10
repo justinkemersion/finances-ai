@@ -273,6 +273,18 @@ python -m backend.app.api.cli spending --limit 20 --category groceries
 python -m backend.app.api.cli merchants --limit 10
 ```
 
+#### Bank Account Connection
+```bash
+# Connect a real bank account (opens browser, handles token exchange)
+python -m backend.app.api.cli connect-bank
+
+# Use a different port if 8080 is busy
+python -m backend.app.api.cli connect-bank --port 3000
+
+# Create sandbox test item (for testing only)
+python -m backend.app.api.cli get-token
+```
+
 #### Data Synchronization
 ```bash
 # Sync data from Plaid
