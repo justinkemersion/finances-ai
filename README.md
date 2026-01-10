@@ -408,6 +408,16 @@ See [EXPORT_GUIDE.md](EXPORT_GUIDE.md) for detailed instructions and example pro
 
 ## 🔌 Data Sources
 
+### Financial Data Providers
+
+The application supports multiple financial data providers through a flexible provider architecture:
+
+- **Plaid** - Industry standard, supports investments and banking
+- **Teller** - Free tier available, modern API, great for personal use
+- **Future Providers** - Architecture supports easy addition of new providers
+
+See [PROVIDER_ARCHITECTURE.md](PROVIDER_ARCHITECTURE.md) for details on the provider system.
+
 ### Plaid Integration
 
 The application uses Plaid to securely connect to financial institutions:

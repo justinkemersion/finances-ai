@@ -20,14 +20,31 @@ pip install -r requirements.txt
 
 3. Set up environment variables:
 Create a `.env` file in the project root with:
+
+**For Plaid:**
 ```
 DATABASE_URL=sqlite:///./finance_ai.db
+DEFAULT_PROVIDER=plaid
 PLAID_CLIENT_ID=your_plaid_client_id
 PLAID_SECRET=your_plaid_secret
 PLAID_ENV=sandbox
 API_HOST=0.0.0.0
 API_PORT=8000
 ```
+
+**For Teller:**
+```
+DATABASE_URL=sqlite:///./finance_ai.db
+DEFAULT_PROVIDER=teller
+TELLER_APPLICATION_ID=your_application_id
+TELLER_CERTIFICATE_PATH=/path/to/certificate.pem
+TELLER_PRIVATE_KEY_PATH=/path/to/private_key.pem
+TELLER_ENV=sandbox
+API_HOST=0.0.0.0
+API_PORT=8000
+```
+
+**Note**: You can configure both providers and switch between them using the `--provider` flag.
 
 4. Initialize the database:
 ```bash

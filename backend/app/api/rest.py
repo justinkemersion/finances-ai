@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..queries import QueryHandler
 from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer
-from ..plaid import PlaidSync
+from ..providers import ProviderFactory, ProviderType
 from ..models import Account
 
 app = FastAPI(
@@ -37,6 +37,7 @@ class QueryRequest(BaseModel):
 class SyncRequest(BaseModel):
     access_token: str
     item_id: str
+    provider: Optional[str] = None  # plaid, teller. Defaults to config.DEFAULT_PROVIDER
     sync_holdings: bool = True
     sync_transactions: bool = True
 
@@ -162,9 +163,18 @@ def get_accounts(db: Session = Depends(get_db)):
 
 @app.post("/sync")
 def sync(request: SyncRequest, db: Session = Depends(get_db)):
-    """Sync data from Plaid"""
+    """Sync data from financial provider (Plaid or Teller)"""
     try:
-        sync_handler = PlaidSync()
+        from ..config import config
+        
+        # Determine provider
+        provider_type = None
+        if request.provider:
+            provider_type = ProviderFactory.from_string(request.provider)
+        else:
+            provider_type = ProviderFactory.from_string(config.DEFAULT_PROVIDER)
+        
+        sync_handler = ProviderFactory.create_sync(provider_type)
         results = sync_handler.sync_all(
             db=db,
             access_token=request.access_token,
@@ -174,6 +184,7 @@ def sync(request: SyncRequest, db: Session = Depends(get_db)):
         )
         return {
             "status": "success",
+            "provider": provider_type.value,
             "results": results
         }
     except Exception as e:

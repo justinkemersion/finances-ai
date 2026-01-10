@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, engine, Base
 from ..models import Account
-from ..plaid import PlaidClient, PlaidSync
+from ..providers import ProviderFactory, ProviderType
 from ..queries import QueryHandler
-from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer, IncomeAnalyzer, ExpenseAnalyzer, ExpenseAnalyzer
+from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer, IncomeAnalyzer, ExpenseAnalyzer
 
 console = Console()
 
@@ -35,17 +35,27 @@ def init_db():
 
 
 @cli.command()
-@click.option("--access-token", required=True, help="Plaid access token")
-@click.option("--item-id", required=True, help="Plaid item ID")
+@click.option("--access-token", required=True, help="Provider access token")
+@click.option("--item-id", required=True, help="Provider item ID")
+@click.option("--provider", default=None, help="Provider to use (plaid, teller). Defaults to config.DEFAULT_PROVIDER")
 @click.option("--holdings/--no-holdings", default=True, help="Sync holdings")
 @click.option("--transactions/--no-transactions", default=True, help="Sync transactions")
-def sync(access_token: str, item_id: str, holdings: bool, transactions: bool):
-    """Sync data from Plaid"""
-    console.print("[bold blue]Syncing data from Plaid...[/bold blue]")
-    
+def sync(access_token: str, item_id: str, provider: str, holdings: bool, transactions: bool):
+    """Sync data from financial provider (Plaid or Teller)"""
     db = SessionLocal()
     try:
-        sync_handler = PlaidSync()
+        # Determine provider
+        provider_type = None
+        if provider:
+            provider_type = ProviderFactory.from_string(provider)
+        else:
+            from ..config import config
+            provider_type = ProviderFactory.from_string(config.DEFAULT_PROVIDER)
+        
+        provider_name = provider_type.value.upper()
+        console.print(f"[bold blue]Syncing data from {provider_name}...[/bold blue]")
+        
+        sync_handler = ProviderFactory.create_sync(provider_type)
         results = sync_handler.sync_all(
             db=db,
             access_token=access_token,
@@ -515,62 +525,78 @@ def get_token(institution_id: str):
 
 
 @cli.command()
+@click.option("--provider", default=None, help="Provider to use (plaid, teller). Defaults to config.DEFAULT_PROVIDER")
 @click.option("--port", default=8080, help="Port for local web server (default: 8080)")
 @click.option("--no-browser", is_flag=True, help="Don't automatically open browser")
-def connect_bank(port: int, no_browser: bool):
-    """Connect a real bank account using Plaid Link
+def connect_bank(provider: str, port: int, no_browser: bool):
+    """Connect a real bank account using Plaid Link or Teller Connect
     
     This command will:
-    1. Create a Plaid link token
+    1. Create a link/connect token
     2. Start a local web server on http://localhost:PORT
     3. Open your browser to connect your bank
     4. Exchange the token and save your credentials
     
-    IMPORTANT: Before running this command, you must add the redirect URI to your Plaid Dashboard:
+    For Plaid: Before running, add redirect URI to Plaid Dashboard:
     1. Go to https://dashboard.plaid.com/team/api
     2. Scroll to "Allowed redirect URIs"
     3. Add: http://localhost:8080/success (or your custom port)
     4. Save the changes
-    
-    Then run this command again.
     """
     import webbrowser
     import time
-    from ..plaid.client import PlaidClient
+    from ..providers import ProviderFactory, ProviderType
     from ..plaid.link_server import start_link_server
     
-    console.print("[bold blue]🔗 Setting up bank connection...[/bold blue]")
+    # Determine provider
+    provider_type = None
+    if provider:
+        provider_type = ProviderFactory.from_string(provider)
+    else:
+        from ..config import config
+        provider_type = ProviderFactory.from_string(config.DEFAULT_PROVIDER)
     
-    # Initialize Plaid client
+    provider_name = provider_type.value.upper()
+    console.print(f"[bold blue]🔗 Setting up bank connection with {provider_name}...[/bold blue]")
+    
+    # Initialize provider client
     try:
-        plaid_client = PlaidClient()
+        provider_client = ProviderFactory.create_client(provider_type)
     except Exception as e:
-        console.print(f"[bold red]❌ Failed to initialize Plaid client: {str(e)}[/bold red]")
-        console.print("[yellow]Make sure your Plaid credentials are set in .env[/yellow]")
+        console.print(f"[bold red]❌ Failed to initialize {provider_name} client: {str(e)}[/bold red]")
+        if provider_type == ProviderType.PLAID:
+            console.print("[yellow]Make sure your Plaid credentials are set in .env[/yellow]")
+        elif provider_type == ProviderType.TELLER:
+            console.print("[yellow]Make sure your Teller credentials are set in .env[/yellow]")
+            console.print("[yellow]Required: TELLER_APPLICATION_ID, TELLER_CERTIFICATE_PATH, TELLER_PRIVATE_KEY_PATH[/yellow]")
         return
     
-    # Create link token
+    # Create link token/connect URL
     redirect_uri = f"http://localhost:{port}/success"
     
     # Show environment info
     from ..config import config
-    console.print(f"[dim]Plaid Environment: {config.PLAID_ENV}[/dim]")
+    if provider_type == ProviderType.PLAID:
+        console.print(f"[dim]Plaid Environment: {config.PLAID_ENV}[/dim]")
+    elif provider_type == ProviderType.TELLER:
+        console.print(f"[dim]Teller Environment: {config.TELLER_ENV}[/dim]")
     console.print(f"[dim]Redirect URI: {redirect_uri}[/dim]")
     
     try:
-        console.print("[bold blue]Creating link token...[/bold blue]")
-        link_token = plaid_client.create_link_token(redirect_uri)
-        console.print("[bold green]✓ Link token created[/bold green]")
+        console.print("[bold blue]Creating connection token...[/bold blue]")
+        link_token = provider_client.create_link_token(redirect_uri)
+        console.print("[bold green]✓ Connection token created[/bold green]")
     except Exception as e:
         error_str = str(e)
-        if "redirect URI" in error_str.lower() or "INVALID_FIELD" in error_str:
+        # Only handle redirect URI errors for Plaid
+        if provider_type == ProviderType.PLAID and ("redirect URI" in error_str.lower() or "INVALID_FIELD" in error_str):
             console.print(f"[bold red]❌ Failed to create link token: Redirect URI issue[/bold red]")
             
             # For sandbox, try without redirect_uri as fallback
             if config.PLAID_ENV.lower() == "sandbox":
                 console.print("\n[yellow]Trying without redirect URI for sandbox...[/yellow]")
                 try:
-                    link_token = plaid_client.create_link_token(None)
+                    link_token = provider_client.create_link_token(None)
                     console.print("[bold green]✓ Link token created (without redirect URI)[/bold green]")
                     # Update redirect_uri to None for the rest of the flow
                     redirect_uri = None
@@ -628,8 +654,8 @@ def connect_bank(port: int, no_browser: bool):
     def on_success(public_token: str):
         """Callback when user successfully connects"""
         try:
-            console.print("\n[bold blue]Exchanging public token for access token...[/bold blue]")
-            access_token, item_id = plaid_client.exchange_public_token(public_token)
+            console.print("\n[bold blue]Exchanging token for access token...[/bold blue]")
+            access_token, item_id = provider_client.exchange_public_token(public_token)
             result["access_token"] = access_token
             result["item_id"] = item_id
             console.print("[bold green]✓ Token exchanged successfully![/bold green]")
@@ -639,22 +665,35 @@ def connect_bank(port: int, no_browser: bool):
             console.print(f"[bold red]❌ Failed to exchange token: {str(e)}[/bold red]")
             raise
     
-    # Start web server (only if redirect_uri is set)
+    # Handle Teller Connect URL (different from Plaid Link)
+    if provider_type == ProviderType.TELLER:
+        # Teller returns a Connect URL directly
+        console.print(f"\n[bold cyan]Opening Teller Connect...[/bold cyan]")
+        console.print(f"[yellow]After connecting, you'll be redirected back with an authorization code[/yellow]")
+        if not no_browser:
+            try:
+                webbrowser.open(link_token)
+            except Exception:
+                console.print(f"[yellow]Could not open browser. Please visit: {link_token}[/yellow]")
+        console.print(f"\n[yellow]After connecting, copy the authorization code from the callback URL[/yellow]")
+        console.print(f"[yellow]and run:[/yellow]")
+        console.print(f"[cyan]python -m backend.app.api.cli exchange-token <authorization_code> --provider teller[/cyan]")
+        return
+    
+    # Start web server (only if redirect_uri is set and using Plaid)
     if redirect_uri is None:
         console.print("\n[yellow]⚠️  No redirect URI - using manual token exchange[/yellow]")
         console.print("[yellow]After connecting, you'll need to manually exchange the token.[/yellow]")
         console.print("[yellow]See instructions below after connecting.[/yellow]\n")
-        # For now, we can't use the local server without redirect_uri
-        # User will need to use the exchange-token command
         console.print(f"[bold cyan]Link Token:[/bold cyan] {link_token}")
         console.print(f"\n[yellow]Open this URL in your browser:[/yellow]")
         console.print(f"[cyan]https://link.plaid.com/?link_token={link_token}[/cyan]")
         console.print(f"\n[yellow]After connecting, extract the public_token from the callback URL[/yellow]")
         console.print(f"[yellow]and run:[/yellow]")
-        console.print(f"[cyan]python -m backend.app.api.cli exchange-token <public_token>[/cyan]")
+        console.print(f"[cyan]python -m backend.app.api.cli exchange-token <public_token> --provider plaid[/cyan]")
         return
     
-    # Start web server
+    # Start web server for Plaid
     try:
         console.print(f"[bold blue]Starting local web server on port {port}...[/bold blue]")
         server, thread = start_link_server(link_token, on_success, port)
@@ -708,19 +747,31 @@ def connect_bank(port: int, no_browser: bool):
 
 
 @cli.command()
-@click.argument("public_token", required=True)
-def exchange_token(public_token: str):
-    """Exchange a Plaid public_token for an access_token
+@click.argument("token", required=True)
+@click.option("--provider", default=None, help="Provider to use (plaid, teller). Defaults to config.DEFAULT_PROVIDER")
+def exchange_token(token: str, provider: str):
+    """Exchange a provider token (Plaid public_token or Teller authorization_code) for an access_token
     
-    Use this if you got a public_token from Plaid Hosted Link or another source.
+    Use this if you got a token from provider's connection flow.
     """
-    from ..plaid.client import PlaidClient
+    from ..providers import ProviderFactory, ProviderType
     
-    console.print("[bold blue]Exchanging public token for access token...[/bold blue]")
+    # Determine provider
+    provider_type = None
+    if provider:
+        provider_type = ProviderFactory.from_string(provider)
+    else:
+        from ..config import config
+        provider_type = ProviderFactory.from_string(config.DEFAULT_PROVIDER)
+    
+    provider_name = provider_type.value.upper()
+    token_name = "authorization code" if provider_type == ProviderType.TELLER else "public token"
+    
+    console.print(f"[bold blue]Exchanging {token_name} for access token ({provider_name})...[/bold blue]")
     
     try:
-        plaid_client = PlaidClient()
-        access_token, item_id = plaid_client.exchange_public_token(public_token)
+        provider_client = ProviderFactory.create_client(provider_type)
+        access_token, item_id = provider_client.exchange_public_token(token)
         
         console.print("\n" + "="*60)
         console.print("[bold green]✓ Token Exchanged Successfully![/bold green]")
@@ -728,7 +779,7 @@ def exchange_token(public_token: str):
         console.print(f"\n[bold]Access Token:[/bold] {access_token}")
         console.print(f"[bold]Item ID:[/bold] {item_id}")
         console.print("\n[bold]Next step:[/bold] Run sync command with these credentials:")
-        console.print(f"[cyan]python -m backend.app.api.cli sync --access-token {access_token} --item-id {item_id}[/cyan]")
+        console.print(f"[cyan]python -m backend.app.api.cli sync --access-token {access_token} --item-id {item_id} --provider {provider_type.value}[/cyan]")
         console.print("="*60)
     except Exception as e:
         console.print(f"[bold red]❌ Failed to exchange token: {str(e)}[/bold red]")

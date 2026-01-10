@@ -19,10 +19,19 @@ class Config:
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./finance_ai.db")
     SQL_ECHO: bool = os.getenv("SQL_ECHO", "false").lower() == "true"
     
+    # Provider Configuration
+    DEFAULT_PROVIDER: str = os.getenv("DEFAULT_PROVIDER", "plaid")  # plaid, teller
+    
     # Plaid Configuration
     PLAID_CLIENT_ID: Optional[str] = os.getenv("PLAID_CLIENT_ID")
     PLAID_SECRET: Optional[str] = os.getenv("PLAID_SECRET")
     PLAID_ENV: str = os.getenv("PLAID_ENV", "sandbox")  # sandbox, development, production
+    
+    # Teller Configuration
+    TELLER_APPLICATION_ID: Optional[str] = os.getenv("TELLER_APPLICATION_ID")
+    TELLER_CERTIFICATE_PATH: Optional[str] = os.getenv("TELLER_CERTIFICATE_PATH")
+    TELLER_PRIVATE_KEY_PATH: Optional[str] = os.getenv("TELLER_PRIVATE_KEY_PATH")
+    TELLER_ENV: str = os.getenv("TELLER_ENV", "sandbox")  # sandbox, production
     
     # API Configuration
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
