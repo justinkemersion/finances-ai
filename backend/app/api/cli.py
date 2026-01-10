@@ -517,18 +517,22 @@ def get_token(institution_id: str):
 @cli.command()
 @click.option("--port", default=8080, help="Port for local web server (default: 8080)")
 @click.option("--no-browser", is_flag=True, help="Don't automatically open browser")
-@click.option("--no-redirect", is_flag=True, help="Use Hosted Link (no redirect URI configuration needed)")
-def connect_bank(port: int, no_browser: bool, no_redirect: bool):
+def connect_bank(port: int, no_browser: bool):
     """Connect a real bank account using Plaid Link
     
     This command will:
     1. Create a Plaid link token
-    2. Start a local web server (or use Hosted Link)
+    2. Start a local web server on http://localhost:PORT
     3. Open your browser to connect your bank
     4. Exchange the token and save your credentials
     
-    By default, uses a local server with redirect URI. If you get a redirect URI error,
-    use --no-redirect to use Plaid Hosted Link instead (no dashboard configuration needed).
+    IMPORTANT: Before running this command, you must add the redirect URI to your Plaid Dashboard:
+    1. Go to https://dashboard.plaid.com/team/api
+    2. Scroll to "Allowed redirect URIs"
+    3. Add: http://localhost:8080/success (or your custom port)
+    4. Save the changes
+    
+    Then run this command again.
     """
     import webbrowser
     import time
@@ -546,19 +550,25 @@ def connect_bank(port: int, no_browser: bool, no_redirect: bool):
         return
     
     # Create link token
-    redirect_uri = None if no_redirect else f"http://localhost:{port}/success"
+    redirect_uri = f"http://localhost:{port}/success"
     try:
         console.print("[bold blue]Creating link token...[/bold blue]")
-        if no_redirect:
-            console.print("[dim]Using Hosted Link (no redirect URI required)[/dim]")
         link_token = plaid_client.create_link_token(redirect_uri)
         console.print("[bold green]✓ Link token created[/bold green]")
     except Exception as e:
         console.print(f"[bold red]❌ Failed to create link token: {str(e)}[/bold red]")
-        if "redirect URI" in str(e).lower() and not no_redirect:
-            console.print("\n[yellow]💡 Try using --no-redirect to use Hosted Link instead[/yellow]")
-            console.print("[yellow]   Or add the redirect URI to your Plaid Dashboard:[/yellow]")
-            console.print(f"[yellow]   https://dashboard.plaid.com/team/api → Allowed redirect URIs → Add: {redirect_uri}[/yellow]")
+        if "redirect URI" in str(e).lower() or "INVALID_FIELD" in str(e):
+            console.print("\n" + "="*70)
+            console.print("[bold yellow]⚠️  Redirect URI Not Configured[/bold yellow]")
+            console.print("="*70)
+            console.print("\n[yellow]You need to add the redirect URI to your Plaid Dashboard first:[/yellow]")
+            console.print(f"\n[cyan]1. Go to:[/cyan] https://dashboard.plaid.com/team/api")
+            console.print(f"[cyan]2. Scroll to:[/cyan] 'Allowed redirect URIs' section")
+            console.print(f"[cyan]3. Click:[/cyan] 'Add redirect URI'")
+            console.print(f"[cyan]4. Enter:[/cyan] {redirect_uri}")
+            console.print(f"[cyan]5. Click:[/cyan] 'Save'")
+            console.print(f"\n[yellow]Then run this command again.[/yellow]")
+            console.print("="*70)
         return
     
     # Store result
@@ -590,34 +600,15 @@ def connect_bank(port: int, no_browser: bool, no_redirect: bool):
         return
     
     # Open browser
-    if no_redirect:
-        # Use Plaid Hosted Link
-        hosted_link_url = f"https://link.plaid.com/?link_token={link_token}"
-        url = hosted_link_url
-        console.print(f"\n[bold cyan]Opening Plaid Hosted Link...[/bold cyan]")
-        console.print("[yellow]After connecting, you'll need to manually copy the public_token from the callback URL[/yellow]")
-        console.print("[yellow]Or check the Plaid Dashboard for your access_token[/yellow]")
-    else:
-        url = f"http://localhost:{port}"
-        console.print(f"\n[bold cyan]Opening browser to {url}[/bold cyan]")
-        console.print("[yellow]If the browser doesn't open automatically, visit the URL above[/yellow]")
+    url = f"http://localhost:{port}"
+    console.print(f"\n[bold cyan]Opening browser to {url}[/bold cyan]")
+    console.print("[yellow]If the browser doesn't open automatically, visit the URL above[/yellow]")
     
     if not no_browser:
         try:
             webbrowser.open(url)
         except Exception:
             console.print(f"[yellow]Could not open browser automatically. Please visit: {url}[/yellow]")
-    
-    if no_redirect:
-        # For Hosted Link, we can't automatically capture the token
-        console.print("\n[yellow]⚠️  Hosted Link mode: Token exchange must be done manually[/yellow]")
-        console.print("[yellow]After connecting in the browser:[/yellow]")
-        console.print("[yellow]1. The URL will contain a public_token parameter[/yellow]")
-        console.print("[yellow]2. Copy that public_token and run:[/yellow]")
-        console.print("[cyan]   python -m backend.app.api.cli exchange-token <public_token>[/cyan]")
-        console.print("\n[yellow]Or find your access_token in the Plaid Dashboard:[/yellow]")
-        console.print("[cyan]   https://dashboard.plaid.com/ → Items[/cyan]")
-        return
     
     console.print("\n[bold]Waiting for you to connect your bank account...[/bold]")
     console.print("[dim]Press Ctrl+C to cancel[/dim]\n")

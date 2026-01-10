@@ -36,56 +36,33 @@ This command will:
 **Options:**
 - `--port PORT`: Use a different port (default: 8080)
 - `--no-browser`: Don't automatically open browser (you'll need to visit the URL manually)
-- `--no-redirect`: Use Plaid Hosted Link (no redirect URI configuration needed)
 
-**If you get a redirect URI error:**
+**⚠️ Important: Configure Redirect URI First**
 
-If you see an error about redirect URI not being configured, you have two options:
+Before running `connect-bank`, you must add the redirect URI to your Plaid Dashboard:
 
-**Option A: Add redirect URI to Plaid Dashboard (Recommended)**
 1. Go to https://dashboard.plaid.com/team/api
-2. Scroll to "Allowed redirect URIs"
-3. Add: `http://localhost:8080/success` (or your custom port)
-4. Run the command again
+2. Scroll to "Allowed redirect URIs" section
+3. Click "Add redirect URI"
+4. Enter: `http://localhost:8080/success` (or your custom port if using `--port`)
+5. Click "Save"
+6. Run the command again
 
-**Option B: Use Hosted Link (No configuration needed)**
-```bash
-python -m backend.app.api.cli connect-bank --no-redirect
-```
-
-This uses Plaid's Hosted Link which doesn't require redirect URI configuration. After connecting, you'll need to manually exchange the token (see instructions below).
+If you see a redirect URI error, follow the instructions above to add it to your dashboard.
 
 **Examples:**
 ```bash
 # Use default port 8080
 python -m backend.app.api.cli connect-bank
 
-# Use a different port if 8080 is busy
+# Use a different port if 8080 is busy (remember to add the redirect URI for that port too!)
 python -m backend.app.api.cli connect-bank --port 3000
-
-# Use Hosted Link (no redirect URI needed)
-python -m backend.app.api.cli connect-bank --no-redirect
 
 # Don't open browser automatically
 python -m backend.app.api.cli connect-bank --no-browser
 ```
 
 After connecting, you'll see your `access_token` and `item_id` displayed in the terminal. You can then use these with the sync command.
-
-**If using --no-redirect (Hosted Link):**
-
-After connecting in the browser, the URL will contain a `public_token` parameter. You can:
-
-1. **Extract it from the URL** and exchange it:
-   ```bash
-   python -m backend.app.api.cli exchange-token <public_token>
-   ```
-
-2. **Or find your access_token** in the Plaid Dashboard:
-   - Go to https://dashboard.plaid.com/
-   - Navigate to "Items"
-   - Find your connected bank account
-   - Copy the `access_token` and `item_id`
 
 ### Option 2: Exchange Public Token (For Hosted Link or Manual Tokens)
 
