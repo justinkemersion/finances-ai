@@ -551,25 +551,76 @@ def connect_bank(port: int, no_browser: bool):
     
     # Create link token
     redirect_uri = f"http://localhost:{port}/success"
+    
+    # Show environment info
+    from ..config import config
+    console.print(f"[dim]Plaid Environment: {config.PLAID_ENV}[/dim]")
+    console.print(f"[dim]Redirect URI: {redirect_uri}[/dim]")
+    
     try:
         console.print("[bold blue]Creating link token...[/bold blue]")
         link_token = plaid_client.create_link_token(redirect_uri)
         console.print("[bold green]✓ Link token created[/bold green]")
     except Exception as e:
-        console.print(f"[bold red]❌ Failed to create link token: {str(e)}[/bold red]")
-        if "redirect URI" in str(e).lower() or "INVALID_FIELD" in str(e):
-            console.print("\n" + "="*70)
-            console.print("[bold yellow]⚠️  Redirect URI Not Configured[/bold yellow]")
-            console.print("="*70)
-            console.print("\n[yellow]You need to add the redirect URI to your Plaid Dashboard first:[/yellow]")
-            console.print(f"\n[cyan]1. Go to:[/cyan] https://dashboard.plaid.com/team/api")
-            console.print(f"[cyan]2. Scroll to:[/cyan] 'Allowed redirect URIs' section")
-            console.print(f"[cyan]3. Click:[/cyan] 'Add redirect URI'")
-            console.print(f"[cyan]4. Enter:[/cyan] {redirect_uri}")
-            console.print(f"[cyan]5. Click:[/cyan] 'Save'")
-            console.print(f"\n[yellow]Then run this command again.[/yellow]")
-            console.print("="*70)
-        return
+        error_str = str(e)
+        if "redirect URI" in error_str.lower() or "INVALID_FIELD" in error_str:
+            console.print(f"[bold red]❌ Failed to create link token: Redirect URI issue[/bold red]")
+            
+            # For sandbox, try without redirect_uri as fallback
+            if config.PLAID_ENV.lower() == "sandbox":
+                console.print("\n[yellow]Trying without redirect URI for sandbox...[/yellow]")
+                try:
+                    link_token = plaid_client.create_link_token(None)
+                    console.print("[bold green]✓ Link token created (without redirect URI)[/bold green]")
+                    # Update redirect_uri to None for the rest of the flow
+                    redirect_uri = None
+                except Exception as e2:
+                    console.print(f"[bold red]❌ Also failed without redirect URI: {str(e2)}[/bold red]")
+                    console.print("\n" + "="*70)
+                    console.print("[bold yellow]⚠️  Redirect URI Configuration Required[/bold yellow]")
+                    console.print("="*70)
+                    console.print(f"\n[yellow]Current Environment:[/yellow] {config.PLAID_ENV}")
+                    console.print(f"[yellow]Redirect URI:[/yellow] {redirect_uri}")
+                    console.print("\n[yellow]You need to add the redirect URI to your Plaid Dashboard:[/yellow]")
+                    console.print(f"\n[cyan]1. Go to:[/cyan] https://dashboard.plaid.com/team/api")
+                    console.print(f"[cyan]2. Make sure you're viewing the correct environment tabs (Sandbox/Development)[/cyan]")
+                    console.print(f"[cyan]3. Scroll to:[/cyan] 'Allowed redirect URIs' section")
+                    console.print(f"[cyan]4. Click:[/cyan] 'Add redirect URI'")
+                    console.print(f"[cyan]5. Enter EXACTLY:[/cyan] {redirect_uri}")
+                    console.print(f"[cyan]6. Click:[/cyan] 'Save'")
+                    console.print(f"[cyan]7. Wait:[/cyan] 1-2 minutes for changes to propagate")
+                    console.print(f"\n[yellow]Important:[/yellow]")
+                    console.print(f"[yellow]- Make sure there's NO trailing slash[/yellow]")
+                    console.print(f"[yellow]- The URI must match EXACTLY (including http://)[/yellow]")
+                    console.print(f"[yellow]- Check BOTH Sandbox AND Development tabs if you have both[/yellow]")
+                    console.print(f"[yellow]- Changes may take 1-2 minutes to take effect[/yellow]")
+                    console.print(f"\n[yellow]Then run this command again.[/yellow]")
+                    console.print("="*70)
+                    return
+            else:
+                console.print("\n" + "="*70)
+                console.print("[bold yellow]⚠️  Redirect URI Not Configured[/bold yellow]")
+                console.print("="*70)
+                console.print(f"\n[yellow]Current Environment:[/yellow] {config.PLAID_ENV}")
+                console.print(f"[yellow]Redirect URI:[/yellow] {redirect_uri}")
+                console.print("\n[yellow]You need to add the redirect URI to your Plaid Dashboard:[/yellow]")
+                console.print(f"\n[cyan]1. Go to:[/cyan] https://dashboard.plaid.com/team/api")
+                console.print(f"[cyan]2. Make sure you're viewing the correct environment:[/cyan] {config.PLAID_ENV.upper()}")
+                console.print(f"[cyan]3. Scroll to:[/cyan] 'Allowed redirect URIs' section")
+                console.print(f"[cyan]4. Click:[/cyan] 'Add redirect URI'")
+                console.print(f"[cyan]5. Enter EXACTLY:[/cyan] {redirect_uri}")
+                console.print(f"[cyan]6. Click:[/cyan] 'Save'")
+                console.print(f"[cyan]7. Wait:[/cyan] 1-2 minutes for changes to propagate")
+                console.print(f"\n[yellow]Important:[/yellow]")
+                console.print(f"[yellow]- Make sure there's NO trailing slash[/yellow]")
+                console.print(f"[yellow]- The URI must match EXACTLY (including http://)[/yellow]")
+                console.print(f"[yellow]- Changes may take 1-2 minutes to take effect[/yellow]")
+                console.print(f"\n[yellow]Then run this command again.[/yellow]")
+                console.print("="*70)
+                return
+        else:
+            console.print(f"[bold red]❌ Failed to create link token: {error_str}[/bold red]")
+            return
     
     # Store result
     result = {"access_token": None, "item_id": None, "error": None}
@@ -587,6 +638,21 @@ def connect_bank(port: int, no_browser: bool):
             result["error"] = str(e)
             console.print(f"[bold red]❌ Failed to exchange token: {str(e)}[/bold red]")
             raise
+    
+    # Start web server (only if redirect_uri is set)
+    if redirect_uri is None:
+        console.print("\n[yellow]⚠️  No redirect URI - using manual token exchange[/yellow]")
+        console.print("[yellow]After connecting, you'll need to manually exchange the token.[/yellow]")
+        console.print("[yellow]See instructions below after connecting.[/yellow]\n")
+        # For now, we can't use the local server without redirect_uri
+        # User will need to use the exchange-token command
+        console.print(f"[bold cyan]Link Token:[/bold cyan] {link_token}")
+        console.print(f"\n[yellow]Open this URL in your browser:[/yellow]")
+        console.print(f"[cyan]https://link.plaid.com/?link_token={link_token}[/cyan]")
+        console.print(f"\n[yellow]After connecting, extract the public_token from the callback URL[/yellow]")
+        console.print(f"[yellow]and run:[/yellow]")
+        console.print(f"[cyan]python -m backend.app.api.cli exchange-token <public_token>[/cyan]")
+        return
     
     # Start web server
     try:
