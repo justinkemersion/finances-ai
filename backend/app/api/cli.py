@@ -2,6 +2,12 @@
 
 import click
 import os
+import http.server
+import socketserver
+import urllib.parse
+import threading
+import time
+import webbrowser
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -10,6 +16,7 @@ from rich.prompt import Prompt
 from rich import box
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
+from typing import Callable, Optional
 
 from ..database import SessionLocal, engine, Base
 from ..models import Account
@@ -18,6 +25,490 @@ from ..queries import QueryHandler
 from ..analytics import NetWorthAnalyzer, PerformanceAnalyzer, AllocationAnalyzer, IncomeAnalyzer, ExpenseAnalyzer
 
 console = Console()
+
+
+def _start_teller_server(application_id: str, on_success: Callable, port: int, result: dict, enrollment_id: Optional[str] = None) -> tuple:
+    """Start a local HTTP server to handle Teller Connect with JavaScript SDK"""
+    
+    class TellerConnectHandler(http.server.SimpleHTTPRequestHandler):
+        """HTTP request handler for Teller Connect"""
+        
+        def __init__(self, *args, application_id: str, on_success: Callable, result: dict, enrollment_id: Optional[str] = None, **kwargs):
+            self.application_id = application_id
+            self.on_success = on_success
+            self.result = result
+            self.enrollment_id = enrollment_id
+            super().__init__(*args, **kwargs)
+        
+        def log_message(self, format, *args):
+            """Suppress default logging"""
+            pass
+        
+        def do_GET(self):
+            """Handle GET requests"""
+            parsed_path = urllib.parse.urlparse(self.path)
+            
+            if parsed_path.path == '/':
+                # Serve the Teller Connect HTML page
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                
+                html = self._get_teller_connect_html()
+                self.wfile.write(html.encode())
+            
+            elif parsed_path.path == '/success':
+                # Handle successful connection - receive access token from JavaScript
+                query_params = urllib.parse.parse_qs(parsed_path.query)
+                access_token = query_params.get('access_token', [None])[0]
+                enrollment_id = query_params.get('enrollment_id', [None])[0]
+                user_id = query_params.get('user_id', [None])[0]
+                
+                # Debug logging
+                import sys
+                print(f"\n[DEBUG] Received /success request", file=sys.stderr, flush=True)
+                print(f"[DEBUG] Access token: {access_token[:20] if access_token else 'None'}...", file=sys.stderr, flush=True)
+                print(f"[DEBUG] Enrollment ID: {enrollment_id}", file=sys.stderr, flush=True)
+                
+                if access_token:
+                    try:
+                        # Validate access token format (Teller tokens typically start with specific prefixes)
+                        if not access_token or len(access_token) < 10:
+                            raise ValueError("Invalid access token format")
+                        
+                        # Use enrollment_id as item_id if available, otherwise use access_token
+                        item_id = enrollment_id or access_token
+                        
+                        # Store the result
+                        self.result["access_token"] = access_token
+                        self.result["item_id"] = item_id
+                        print(f"[DEBUG] Token stored in result: {self.result['access_token'][:20]}...", file=sys.stderr, flush=True)
+                        print(f"[DEBUG] Result dict now has access_token: {bool(self.result.get('access_token'))}", file=sys.stderr, flush=True)
+                        
+                        # For Teller, we already have the access token - no exchange needed
+                        # Call the callback to process and display the token
+                        try:
+                            self.on_success(access_token)
+                        except Exception as e:
+                            # Log the error but don't fail - token is already stored in self.result
+                            import sys
+                            print(f"Warning: Error in on_success callback: {e}", file=sys.stderr)
+                            # Token is already stored, so we can continue
+                        
+                        self.send_response(200)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        
+                        success_html = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>Connection Successful</title>
+                            <style>
+                                body {{
+                                    font-family: Arial, sans-serif;
+                                    max-width: 600px;
+                                    margin: 50px auto;
+                                    padding: 20px;
+                                    background: #f5f5f5;
+                                }}
+                                .success {{
+                                    background: white;
+                                    padding: 30px;
+                                    border-radius: 8px;
+                                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                }}
+                                h1 {{
+                                    color: #4CAF50;
+                                    margin-top: 0;
+                                }}
+                                .token {{
+                                    background: #f9f9f9;
+                                    padding: 15px;
+                                    border-radius: 4px;
+                                    font-family: monospace;
+                                    word-break: break-all;
+                                    margin: 10px 0;
+                                }}
+                                .info {{
+                                    color: #666;
+                                    font-size: 14px;
+                                    margin-top: 20px;
+                                }}
+                            </style>
+                        </head>
+                        <body>
+                            <div class="success">
+                                <h1>✓ Bank Account Connected Successfully!</h1>
+                                <p>Your access token has been saved. You can close this window.</p>
+                                <div class="info">
+                                    <strong>Access Token:</strong>
+                                    <div class="token">{access_token}</div>
+                                    <strong>Enrollment ID:</strong>
+                                    <div class="token">{item_id}</div>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                        self.wfile.write(success_html.encode())
+                    except Exception as e:
+                        self.result["error"] = str(e)
+                        self.send_response(500)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        error_html = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head><title>Error</title></head>
+                        <body>
+                            <h1>Error</h1>
+                            <p>Failed to process access token: {str(e)}</p>
+                        </body>
+                        </html>
+                        """
+                        self.wfile.write(error_html.encode())
+                else:
+                    # Check for error in query params
+                    error = query_params.get('error', [None])[0]
+                    error_description = query_params.get('error_description', [None])[0]
+                    
+                    self.send_response(400)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    
+                    if error:
+                        error_msg = f"Error: {error}"
+                        if error_description:
+                            error_msg += f" - {error_description}"
+                        error_html = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head><title>Connection Error</title></head>
+                        <body>
+                            <h1>Connection Failed</h1>
+                            <p>{error_msg}</p>
+                        </body>
+                        </html>
+                        """
+                        self.wfile.write(error_html.encode())
+                    else:
+                        self.wfile.write(b'Missing access token')
+            
+            else:
+                self.send_response(404)
+                self.end_headers()
+        
+        def _get_teller_connect_html(self) -> str:
+            """Generate HTML page with Teller Connect JavaScript SDK"""
+            from ..config import config
+            environment = config.TELLER_ENV or "sandbox"
+            
+            return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Connect Bank Account</title>
+    <script src="https://cdn.teller.io/connect/connect.js"></script>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }}
+        .container {{
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        h1 {{
+            margin-top: 0;
+            color: #333;
+        }}
+        #teller-connect-button {{
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 20px;
+        }}
+        #teller-connect-button:hover {{
+            background: #45a049;
+        }}
+        .info {{
+            color: #666;
+            font-size: 14px;
+            margin-top: 20px;
+        }}
+        .status {{
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }}
+        .status.loading {{
+            background: #e3f2fd;
+            color: #1976d2;
+            display: block;
+        }}
+        .status.error {{
+            background: #ffebee;
+            color: #c62828;
+            display: block;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Connect Your Bank Account</h1>
+        <p>Click the button below to securely connect your bank account using Teller.</p>
+        <button id="teller-connect-button">Connect Bank Account</button>
+        <div id="status" class="status"></div>
+        <div class="info">
+            <p>This will open Teller's secure connection interface. Your credentials are never shared with us.</p>
+        </div>
+    </div>
+
+    <script>
+        // Verify Teller Connect SDK loaded
+        if (typeof TellerConnect === 'undefined') {{
+            document.getElementById("status").textContent = "Error: Teller Connect SDK failed to load. Please refresh the page.";
+            document.getElementById("status").className = "status error";
+            console.error("Teller Connect SDK not loaded");
+        }} else {{
+            const applicationId = '{self.application_id}';
+            const environment = '{environment}';
+            
+            console.log("Initializing Teller Connect with:", {{ applicationId, environment }});
+            
+            // Initialize Teller Connect
+            const enrollmentId = {f"'{self.enrollment_id}'" if self.enrollment_id else "null"};
+            
+            const connectConfig = {{
+                applicationId: applicationId,
+                environment: environment,
+                products: ["transactions", "balance", "identity"],
+                onInit: function() {{
+                    console.log("Teller Connect has initialized successfully");
+                    console.log("Config used:", {{
+                        applicationId: applicationId,
+                        environment: environment
+                    }});
+                    document.getElementById("status").textContent = "Ready to connect...";
+                    document.getElementById("status").className = "status loading";
+                }},
+                onSuccess: function(enrollment) {{
+                    console.log("=".repeat(50));
+                    console.log("TELLER CONNECT SUCCESS - FULL ENROLLMENT OBJECT");
+                    console.log("=".repeat(50));
+                    console.log("Full enrollment object:", JSON.stringify(enrollment, null, 2));
+                    console.log("Enrollment keys:", enrollment ? Object.keys(enrollment) : "null");
+                    
+                    // Teller Connect returns enrollment object with accessToken
+                    // Check multiple possible field names for the access token
+                    let accessToken = null;
+                    let enrollmentId = null;
+                    let userId = null;
+                    
+                    if (enrollment) {{
+                        // Try different possible field names for access token
+                        accessToken = enrollment.accessToken || 
+                                     enrollment.access_token || 
+                                     enrollment.token ||
+                                     (enrollment.enrollment && enrollment.enrollment.accessToken) ||
+                                     (enrollment.enrollment && enrollment.enrollment.access_token);
+                        
+                        // Extract enrollment ID
+                        enrollmentId = enrollment.enrollmentId ||
+                                      enrollment.enrollment_id ||
+                                      (enrollment.enrollment && enrollment.enrollment.id) ||
+                                      enrollment.id;
+                        
+                        // Extract user ID
+                        userId = enrollment.userId ||
+                                enrollment.user_id ||
+                                (enrollment.user && enrollment.user.id);
+                    }}
+                    
+                    console.log("Extracted values:", {{
+                        accessToken: accessToken ? accessToken.substring(0, 20) + "..." : null,
+                        enrollmentId: enrollmentId,
+                        userId: userId,
+                        hasAccessToken: !!accessToken
+                    }});
+                    
+                    // Validate we have an access token
+                    if (!accessToken) {{
+                        console.error("=".repeat(50));
+                        console.error("ERROR: No access token found in enrollment object!");
+                        console.error("Available fields:", enrollment ? Object.keys(enrollment) : "null");
+                        console.error("Full object:", JSON.stringify(enrollment, null, 2));
+                        console.error("=".repeat(50));
+                        document.getElementById("status").textContent = "Error: No access token found in enrollment";
+                        document.getElementById("status").className = "status error";
+                        return;
+                    }}
+                    
+                    // Send to our local server
+                    const params = new URLSearchParams({{
+                        access_token: accessToken,
+                        enrollment_id: enrollmentId || '',
+                        user_id: userId || ''
+                    }});
+                    
+                    console.log("Redirecting to success page with token...");
+                    // Redirect to success page with access token
+                    window.location.href = '/success?' + params.toString();
+                }},
+                onExit: function() {{
+                    console.log("User closed Teller Connect");
+                    document.getElementById("status").textContent = "Connection cancelled";
+                    document.getElementById("status").className = "status error";
+                }},
+                onFailure: function(failure) {{
+                    console.error("=".repeat(50));
+                    console.error("TELLER CONNECT FAILURE - DETAILED DEBUG INFO");
+                    console.error("=".repeat(50));
+                    console.error("Full error object:", JSON.stringify(failure, null, 2));
+                    console.error("Failure type:", typeof failure);
+                    console.error("Failure keys:", failure ? Object.keys(failure) : "null");
+                    console.error("Failure value:", failure);
+                    
+                    // Try to extract detailed error information
+                    let errorMsg = "Connection failed";
+                    let errorCode = null;
+                    let errorDetails = null;
+                    
+                    if (failure) {{
+                        // Check for nested error objects
+                        if (failure.error) {{
+                            errorDetails = failure.error;
+                            if (typeof failure.error === 'object') {{
+                                errorMsg = failure.error.message || failure.error.code || JSON.stringify(failure.error);
+                                errorCode = failure.error.code || failure.error.error_code;
+                            }} else {{
+                                errorMsg = failure.error;
+                            }}
+                        }} else if (failure.message) {{
+                            errorMsg = failure.message;
+                            errorCode = failure.code || failure.error_code;
+                        }} else if (failure.code) {{
+                            errorCode = failure.code;
+                            errorMsg = failure.message || `Error code: ${{errorCode}}`;
+                        }} else if (typeof failure === 'string') {{
+                            errorMsg = failure;
+                        }} else {{
+                            errorMsg = JSON.stringify(failure);
+                        }}
+                    }}
+                    
+                    console.error("Extracted error message:", errorMsg);
+                    console.error("Extracted error code:", errorCode);
+                    console.error("Error details:", errorDetails);
+                    console.error("Configuration at time of failure:", {{
+                        applicationId: applicationId,
+                        environment: environment,
+                        enrollmentId: enrollmentId
+                    }});
+                    console.error("=".repeat(50));
+                    
+                    // Display user-friendly error
+                    let displayMsg = errorMsg;
+                    if (errorCode) {{
+                        displayMsg += ` (Code: ${{errorCode}})`;
+                    }}
+                    
+                    document.getElementById("status").textContent = "Error: " + displayMsg;
+                    document.getElementById("status").className = "status error";
+                    
+                    // Add troubleshooting tips based on error
+                    let troubleshooting = "";
+                    if (errorMsg.toLowerCase().includes("incorrect") || errorMsg.toLowerCase().includes("invalid")) {{
+                        troubleshooting = "\\n\\nTroubleshooting:\\n";
+                        troubleshooting += "1. Verify your credentials are correct\\n";
+                        troubleshooting += "2. Check if your bank requires MFA (multi-factor authentication)\\n";
+                        troubleshooting += "3. Your bank might require additional security steps\\n";
+                        troubleshooting += "4. Try logging into your bank's website directly first\\n";
+                        troubleshooting += "5. Check if there's an existing enrollment that needs repair";
+                    }}
+                    
+                    if (troubleshooting) {{
+                        console.warn(troubleshooting);
+                    }}
+                }},
+                onEvent: function(eventName, metadata) {{
+                    // Log all events for debugging
+                    console.log("Teller Connect event:", eventName, metadata);
+                    if (eventName === "ERROR" || eventName === "FAILURE" || eventName === "AUTH_ERROR" || eventName === "CREDENTIALS_ERROR") {{
+                        console.error("=".repeat(50));
+                        console.error("TELLER CONNECT ERROR EVENT");
+                        console.error("Event name:", eventName);
+                        console.error("Event metadata:", JSON.stringify(metadata, null, 2));
+                        console.error("=".repeat(50));
+                        
+                        // Also update status if possible
+                        if (document.getElementById("status")) {{
+                            const errorText = metadata && metadata.message ? metadata.message : `Error: ${{eventName}}`;
+                            document.getElementById("status").textContent = errorText;
+                            document.getElementById("status").className = "status error";
+                        }}
+                    }}
+                }}
+            }};
+            
+            // If repairing an existing enrollment, add enrollmentId
+            if (enrollmentId) {{
+                connectConfig.enrollmentId = enrollmentId;
+                console.log("Repairing existing enrollment:", enrollmentId);
+            }}
+            
+            console.log("Setting up Teller Connect with config:", connectConfig);
+            
+            const tellerConnect = TellerConnect.setup(connectConfig);
+
+            // Hook button click to open Teller Connect
+            document.getElementById("teller-connect-button").addEventListener("click", function(e) {{
+                e.preventDefault();
+                console.log("Opening Teller Connect...");
+                console.log("Current config:", {{
+                    applicationId: applicationId,
+                    environment: environment
+                }});
+                try {{
+                    tellerConnect.open();
+                }} catch (error) {{
+                    console.error("Error opening Teller Connect:", error);
+                    document.getElementById("status").textContent = "Error opening Teller Connect: " + error.message;
+                    document.getElementById("status").className = "status error";
+                }}
+            }});
+        }}
+    </script>
+</body>
+</html>
+            """
+    
+    # Create a handler class with the application_id and callback bound
+    class Handler(TellerConnectHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, application_id=application_id, on_success=on_success, result=result, **kwargs)
+    
+    server = socketserver.TCPServer(("", port), Handler)
+    server.allow_reuse_address = True
+    
+    def run_server():
+        server.serve_forever()
+    
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+    
+    return server, thread
 
 
 @click.group()
@@ -528,7 +1019,8 @@ def get_token(institution_id: str):
 @click.option("--provider", default=None, help="Provider to use (plaid, teller). Defaults to config.DEFAULT_PROVIDER")
 @click.option("--port", default=8080, help="Port for local web server (default: 8080)")
 @click.option("--no-browser", is_flag=True, help="Don't automatically open browser")
-def connect_bank(provider: str, port: int, no_browser: bool):
+@click.option("--enrollment-id", help="Teller enrollment ID to repair (if reconnecting existing enrollment)")
+def connect_bank(provider: str, port: int, no_browser: bool, enrollment_id: str):
     """Connect a real bank account using Plaid Link or Teller Connect
     
     This command will:
@@ -582,12 +1074,21 @@ def connect_bank(provider: str, port: int, no_browser: bool):
         console.print(f"[dim]Teller Environment: {config.TELLER_ENV}[/dim]")
     console.print(f"[dim]Redirect URI: {redirect_uri}[/dim]")
     
-    try:
-        console.print("[bold blue]Creating connection token...[/bold blue]")
-        link_token = provider_client.create_link_token(redirect_uri)
-        console.print("[bold green]✓ Connection token created[/bold green]")
-    except Exception as e:
-        error_str = str(e)
+    # For Teller, we don't need to create a link token - we use the JavaScript SDK directly
+    if provider_type == ProviderType.TELLER:
+        # Get application ID from config
+        application_id = config.TELLER_APPLICATION_ID
+        if not application_id:
+            console.print("[bold red]❌ TELLER_APPLICATION_ID not found in .env[/bold red]")
+            return
+    else:
+        # For Plaid, create link token
+        try:
+            console.print("[bold blue]Creating connection token...[/bold blue]")
+            link_token = provider_client.create_link_token(redirect_uri)
+            console.print("[bold green]✓ Connection token created[/bold green]")
+        except Exception as e:
+            error_str = str(e)
         # Only handle redirect URI errors for Plaid
         if provider_type == ProviderType.PLAID and ("redirect URI" in error_str.lower() or "INVALID_FIELD" in error_str):
             console.print(f"[bold red]❌ Failed to create link token: Redirect URI issue[/bold red]")
@@ -651,33 +1152,144 @@ def connect_bank(provider: str, port: int, no_browser: bool):
     # Store result
     result = {"access_token": None, "item_id": None, "error": None}
     
-    def on_success(public_token: str):
+    def on_success(token: str):
         """Callback when user successfully connects"""
         try:
-            console.print("\n[bold blue]Exchanging token for access token...[/bold blue]")
-            access_token, item_id = provider_client.exchange_public_token(public_token)
-            result["access_token"] = access_token
-            result["item_id"] = item_id
-            console.print("[bold green]✓ Token exchanged successfully![/bold green]")
-            return access_token, item_id
+            if provider_type == ProviderType.TELLER:
+                # For Teller, the token is already the access token (no exchange needed)
+                console.print("\n[bold blue]Processing Teller access token...[/bold blue]")
+                # Use enrollment_id from the result if available, otherwise try to fetch accounts
+                item_id = result.get("item_id") or token
+                
+                # Try to get enrollment_id by fetching accounts (optional - might fail with test tokens)
+                try:
+                    accounts = provider_client.get_accounts(token)
+                    if accounts and len(accounts) > 0:
+                        # Try to extract enrollment_id from first account
+                        item_id = accounts[0].get("enrollment_id") or accounts[0].get("item_id") or item_id
+                except Exception as e:
+                    # If we can't fetch accounts (e.g., test token), that's OK - use token as item_id
+                    pass
+                
+                result["access_token"] = token
+                result["item_id"] = item_id
+                console.print("[bold green]✓ Access token received successfully![/bold green]")
+                console.print(f"[dim]Access token: {token[:20]}...[/dim]")
+                if item_id != token:
+                    console.print(f"[dim]Enrollment ID: {item_id}[/dim]")
+                return token, item_id
+            else:
+                # For Plaid, exchange public token for access token
+                console.print("\n[bold blue]Exchanging token for access token...[/bold blue]")
+                access_token, item_id = provider_client.exchange_public_token(token)
+                result["access_token"] = access_token
+                result["item_id"] = item_id
+                console.print("[bold green]✓ Token exchanged successfully![/bold green]")
+                return access_token, item_id
         except Exception as e:
             result["error"] = str(e)
-            console.print(f"[bold red]❌ Failed to exchange token: {str(e)}[/bold red]")
+            console.print(f"[bold red]❌ Failed to process access token: {str(e)}[/bold red]")
             raise
     
-    # Handle Teller Connect URL (different from Plaid Link)
+    # Handle Teller Connect (different from Plaid Link - uses JavaScript SDK)
     if provider_type == ProviderType.TELLER:
-        # Teller returns a Connect URL directly
-        console.print(f"\n[bold cyan]Opening Teller Connect...[/bold cyan]")
-        console.print(f"[yellow]After connecting, you'll be redirected back with an authorization code[/yellow]")
+        # Teller uses JavaScript SDK, so we serve an HTML page with the SDK
+        # The SDK will call onSuccess with the accessToken
+        
+        # Validate environment and credentials before proceeding
+        console.print(f"[bold blue]🔍 Validating Teller Configuration...[/bold blue]")
+        console.print(f"[dim]Environment: {config.TELLER_ENV}[/dim]")
+        console.print(f"[dim]Application ID: {application_id[:20]}...[/dim]")
+        
+        if config.TELLER_ENV.lower() == "production":
+            console.print("\n[yellow]⚠️  WARNING: You are using PRODUCTION environment[/yellow]")
+            console.print("[yellow]Production requires payment setup for commercial use.[/yellow]")
+            console.print("[yellow]For personal use with real bank accounts, use SANDBOX instead.[/yellow]\n")
+        else:
+            console.print(f"[dim]Using SANDBOX environment[/dim]")
+            console.print(f"[dim]Note: Sandbox can connect to real bank accounts for personal use[/dim]")
+            console.print(f"[yellow]⚠️  IMPORTANT: If you're testing with sandbox test credentials:[/yellow]")
+            console.print(f"[yellow]   - Username: any value[/yellow]")
+            console.print(f"[yellow]   - Password: must be exactly 'password' (lowercase)[/yellow]")
+            console.print(f"[yellow]   - Using any other password will simulate credential rejection[/yellow]\n")
+        
+        # Teller doesn't require redirect URI configuration in dashboard
+        console.print(f"[dim]Note: Teller Connect uses JavaScript SDK - no redirect URI needed[/dim]\n")
+        
+        # Check if repairing existing enrollment
+        if enrollment_id:
+            console.print(f"[yellow]📋 Repairing existing enrollment: {enrollment_id}[/yellow]")
+            console.print("[dim]This will reconnect your existing bank account[/dim]\n")
+        
+        # Start web server for Teller (serves HTML page with Teller Connect SDK)
+        try:
+            console.print(f"[bold blue]Starting local web server on port {port}...[/bold blue]")
+            server, thread = _start_teller_server(application_id, on_success, port, result, enrollment_id)
+            console.print("[bold green]✓ Server started[/bold green]")
+        except Exception as e:
+            console.print(f"[bold red]❌ Failed to start server: {str(e)}[/bold red]")
+            if "Address already in use" in str(e):
+                console.print(f"[yellow]💡 Port {port} is already in use. Try a different port with --port[/yellow]")
+            return
+        
+        # Open browser to local server (which serves Teller Connect)
+        url = f"http://localhost:{port}"
+        console.print(f"\n[bold cyan]Opening Teller Connect in browser...[/bold cyan]")
+        console.print(f"[yellow]Click 'Connect Bank Account' to start the connection flow[/yellow]")
+        console.print(f"[yellow]⚠️  IMPORTANT: Only connect once to avoid bank security flags[/yellow]\n")
+        
         if not no_browser:
             try:
-                webbrowser.open(link_token)
+                webbrowser.open(url)
             except Exception:
-                console.print(f"[yellow]Could not open browser. Please visit: {link_token}[/yellow]")
-        console.print(f"\n[yellow]After connecting, copy the authorization code from the callback URL[/yellow]")
-        console.print(f"[yellow]and run:[/yellow]")
-        console.print(f"[cyan]python -m backend.app.api.cli exchange-token <authorization_code> --provider teller[/cyan]")
+                console.print(f"[yellow]Could not open browser automatically. Please visit:[/yellow]")
+                console.print(f"[cyan]{url}[/cyan]")
+        
+        console.print("\n[bold]Waiting for you to connect your bank account...[/bold]")
+        console.print("[dim]Press Ctrl+C to cancel[/dim]\n")
+        
+        # Wait for connection
+        try:
+            while result["access_token"] is None and result["error"] is None:
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Connection cancelled by user.[/yellow]")
+            result["error"] = "Connection cancelled"
+        finally:
+            if 'server' in locals() and server:
+                server.shutdown()
+                thread.join()
+                console.print("[dim]Local web server stopped.[/dim]")
+        
+        if result["access_token"]:
+            # Validate the access token was captured correctly
+            access_token = result['access_token']
+            item_id = result['item_id']
+            
+            if not access_token or len(access_token) < 10:
+                console.print("\n[bold red]❌ Invalid access token received[/bold red]")
+                console.print("[yellow]Please try connecting again.[/yellow]")
+                return
+            
+            console.print("\n" + "="*60)
+            console.print("[bold green]✅ Bank Account Connected Successfully![/bold green]")
+            console.print("="*60)
+            console.print(f"\n[bold]Access Token:[/bold] {access_token[:30]}...")
+            console.print(f"[bold]Enrollment ID:[/bold] {item_id[:30] if item_id else 'N/A'}...")
+            console.print("\n[bold]✅ IMPORTANT: Save these credentials![/bold]")
+            console.print("[yellow]You can use this access token to sync data without re-authenticating.[/yellow]")
+            console.print("\n[bold]Next step:[/bold] Run sync command with these credentials:")
+            console.print(f"[cyan]python -m backend.app.api.cli sync --provider teller --access-token {access_token} --item-id {item_id}[/cyan]")
+            console.print("\n[dim]💡 Tip: You can save these to your .env file or a secure note for future use[/dim]")
+            console.print("="*60)
+        elif result["error"]:
+            console.print("\n" + "="*60)
+            console.print("[bold red]❌ Bank Account Connection Failed[/bold red]")
+            console.print("="*60)
+            console.print(f"[bold red]Error:[/bold red] {result['error']}")
+            console.print("\n[yellow]Please review the error message and try again.[/yellow]")
+            console.print("="*60)
+        
         return
     
     # Start web server (only if redirect_uri is set and using Plaid)
@@ -783,6 +1395,103 @@ def exchange_token(token: str, provider: str):
         console.print("="*60)
     except Exception as e:
         console.print(f"[bold red]❌ Failed to exchange token: {str(e)}[/bold red]")
+
+
+@cli.command()
+@click.option("--provider", default=None, help="Provider to use (teller only for now)")
+def list_enrollments(provider: str):
+    """List enrollments from Teller API to find access tokens
+    
+    This is useful when you've connected via Teller Connect but need to retrieve
+    the access token programmatically.
+    """
+    from ..providers import ProviderFactory, ProviderType
+    
+    provider_type = ProviderType.TELLER  # Only Teller supports enrollments
+    
+    console.print(f"[bold blue]Fetching enrollments from Teller API...[/bold blue]")
+    
+    try:
+        provider_client = ProviderFactory.create_client(provider_type)
+        
+        # Try to get enrollments using mTLS (no access token needed for listing)
+        try:
+            enrollments = provider_client._make_request("GET", "/enrollments")
+        except Exception as e:
+            error_str = str(e)
+            console.print(f"[bold red]❌ Failed to get enrollments: {error_str}[/bold red]")
+            
+            # Try alternative endpoints
+            alternative_endpoints = ["/enrollment", "/v1/enrollments"]
+            for alt_endpoint in alternative_endpoints:
+                try:
+                    console.print(f"[dim]Trying {alt_endpoint}...[/dim]")
+                    enrollments = provider_client._make_request("GET", alt_endpoint)
+                    break
+                except Exception:
+                    continue
+            else:
+                console.print(f"\n[yellow]Note:[/yellow]")
+                console.print(f"[yellow]1. The enrollments endpoint might require an access token[/yellow]")
+                console.print(f"[yellow]2. Check your Teller Dashboard Activity section to find access tokens[/yellow]")
+                console.print(f"[yellow]3. Teller Connect is a JavaScript SDK - access tokens are returned in onSuccess callback[/yellow]")
+                console.print(f"[yellow]4. For CLI usage, you may need to manually copy the token from the dashboard[/yellow]")
+                return
+        
+        if not enrollments:
+            console.print("[yellow]No enrollments found[/yellow]")
+            return
+        
+        # Display enrollments
+        if isinstance(enrollments, list):
+            console.print(f"\n[bold green]Found {len(enrollments)} enrollment(s):[/bold green]\n")
+            
+            table = Table(title="Teller Enrollments")
+            table.add_column("Enrollment ID", style="cyan")
+            table.add_column("Access Token", style="green")
+            table.add_column("User ID", style="yellow")
+            table.add_column("Institution", style="magenta")
+            table.add_column("Status", style="blue")
+            
+            for enrollment in enrollments:
+                enrollment_id = enrollment.get("id") or enrollment.get("enrollment_id") or "N/A"
+                access_token = (
+                    enrollment.get("accessToken") or 
+                    enrollment.get("access_token") or 
+                    "Not in response"
+                )
+                user_id = (
+                    (enrollment.get("user", {}) if isinstance(enrollment.get("user"), dict) else {}).get("id") or
+                    enrollment.get("user_id") or
+                    "N/A"
+                )
+                institution = (
+                    (enrollment.get("institution", {}) if isinstance(enrollment.get("institution"), dict) else {}).get("name") or
+                    enrollment.get("institution_name") or
+                    "N/A"
+                )
+                status = enrollment.get("status") or "N/A"
+                
+                table.add_row(
+                    enrollment_id[:20] + "..." if len(enrollment_id) > 20 else enrollment_id,
+                    access_token[:30] + "..." if isinstance(access_token, str) and len(access_token) > 30 else str(access_token),
+                    user_id[:20] + "..." if len(str(user_id)) > 20 else str(user_id),
+                    institution,
+                    status
+                )
+            
+            console.print(table)
+            
+            # Show how to use the access token
+            if any(e.get("accessToken") or e.get("access_token") for e in enrollments):
+                console.print("\n[yellow]To sync data with an enrollment, use:[/yellow]")
+                console.print("[cyan]python -m backend.app.api.cli sync --provider teller --access-token <token> --item-id <enrollment_id>[/cyan]")
+        else:
+            console.print(f"[yellow]Unexpected response format: {type(enrollments)}[/yellow]")
+            console.print(f"[dim]{enrollments}[/dim]")
+            
+    except Exception as e:
+        console.print(f"[bold red]❌ Error: {str(e)}[/bold red]")
 
 
 @cli.command()

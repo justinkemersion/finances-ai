@@ -226,8 +226,7 @@ class TestFilterExtraction:
         assert merchant is None
         
         amount_threshold = IntentRouter.extract_amount_threshold("show transactions")
-        assert min_amount is None
-        assert max_amount is None
+        assert amount_threshold is None
 
 
 class TestComplexQueries:

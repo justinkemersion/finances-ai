@@ -1,6 +1,6 @@
 # Finance AI Analyzer
 
-A privacy-first, developer-controlled personal finance analyzer built on Plaid with deterministic analytics and optional AI explanations.
+A privacy-first, developer-controlled personal finance analyzer with support for multiple financial data providers (Plaid, Teller) and deterministic analytics with optional AI explanations.
 
 This project is intentionally designed to avoid AI subscriptions, avoid direct AI access to financial data, and remain compliant with modern banking security expectations.
 
@@ -42,7 +42,7 @@ python -m backend.app ai "where can I focus on budgeting to make quick wins with
 ---
 
 ### 🔐 Security & Privacy
-- **Secure, read-only banking access** via Plaid API
+- **Secure, read-only banking access** via Plaid or Teller APIs
 - **No screen scraping** - all data comes through official APIs
 - **No AI with direct access** to bank data
 - **No required AI subscription** - use local LLMs or pay-per-call
@@ -91,15 +91,15 @@ Analytics Layer (deterministic)
  ↓
 Database (SQLite/PostgreSQL)
  ↓
-Plaid API (read-only)
+Provider Layer (Plaid / Teller / Future providers)
  ↓
 Your Bank (Schwab, Chase, etc.)
 ```
 
 **Key principle:**
-- Plaid talks to banks
-- Your backend talks to Plaid
-- AI never talks to Plaid
+- Financial providers (Plaid/Teller) talk to banks
+- Your backend talks to providers
+- AI never talks directly to banks or providers
 
 ---
 
@@ -124,10 +124,17 @@ finances-ai/
 │   │   │   ├── holding.py       # Investment holdings
 │   │   │   ├── net_worth.py     # Net worth snapshots
 │   │   │   └── transaction.py   # Transactions (investment + banking)
-│   │   ├── plaid/               # Plaid integration
+│   │   ├── plaid/               # Plaid integration (legacy)
 │   │   │   ├── client.py         # Plaid API client
 │   │   │   ├── sync.py          # Data synchronization
 │   │   │   └── test_connection.py # Connection testing
+│   │   ├── providers/           # Provider abstraction layer
+│   │   │   ├── base.py          # Abstract base classes
+│   │   │   ├── factory.py       # Provider factory
+│   │   │   ├── plaid_client.py  # Plaid implementation
+│   │   │   ├── plaid_sync.py    # Plaid sync implementation
+│   │   │   ├── teller_client.py # Teller implementation
+│   │   │   └── teller_sync.py   # Teller sync implementation
 │   │   ├── queries/             # Intent routing
 │   │   │   ├── handlers.py      # Query handlers
 │   │   │   └── intent_router.py # Intent detection
@@ -146,6 +153,8 @@ finances-ai/
 ├── README.md                    # This file
 ├── SETUP.md                     # Setup instructions
 ├── PLAID_SETUP.md               # Plaid configuration guide
+├── TELLER_SETUP.md              # Teller configuration guide
+├── PROVIDER_ARCHITECTURE.md     # Provider abstraction architecture
 ├── GET_TOKEN.md                 # Guide for getting Plaid tokens
 └── TRANSACTION_ANALYSIS.md      # Transaction data model documentation
 ```
@@ -176,7 +185,9 @@ finances-ai/
 
 ### Prerequisites
 - Python 3.9 or higher
-- Plaid account and API credentials (see [PLAID_SETUP.md](PLAID_SETUP.md))
+- Financial data provider account:
+  - **Plaid**: API credentials (see [PLAID_SETUP.md](PLAID_SETUP.md))
+  - **Teller**: Application ID and certificates (see [TELLER_SETUP.md](TELLER_SETUP.md))
 
 ### Installation
 
@@ -201,9 +212,21 @@ pip install -r requirements.txt
 Create a `.env` file in the project root:
 ```env
 DATABASE_URL=sqlite:///./finance_ai.db
+
+# Plaid Configuration (optional)
 PLAID_CLIENT_ID=your_plaid_client_id
 PLAID_SECRET=your_plaid_secret
 PLAID_ENV=sandbox
+
+# Teller Configuration (optional)
+TELLER_APPLICATION_ID=your_teller_app_id
+TELLER_CERTIFICATE_PATH=/path/to/certificate.pem
+TELLER_PRIVATE_KEY_PATH=/path/to/private_key.pem
+TELLER_ENV=sandbox
+
+# Default provider (plaid or teller)
+DEFAULT_PROVIDER=teller
+
 API_HOST=0.0.0.0
 API_PORT=8000
 ```
@@ -215,14 +238,20 @@ python -m backend.app.api.cli init-db
 alembic upgrade head
 ```
 
-6. **Get Plaid access token:**
+6. **Connect your bank account:**
 ```bash
-python -m backend.app.api.cli get-token
+# Using Teller (recommended for personal use - free tier available)
+python -m backend.app.api.cli connect-bank --provider teller
+
+# Or using Plaid
+python -m backend.app.api.cli connect-bank --provider plaid
 ```
 
 7. **Sync your data:**
 ```bash
-python -m backend.app.api.cli sync --access-token <token> --item-id <item_id>
+# The connect-bank command will provide you with the access token and item ID
+# Use them to sync:
+python -m backend.app.api.cli sync --provider teller --access-token <token> --item-id <item_id>
 ```
 
 ---
@@ -275,23 +304,29 @@ python -m backend.app.api.cli merchants --limit 10
 
 #### Bank Account Connection
 ```bash
-# Connect a real bank account (opens browser, handles token exchange)
-python -m backend.app.api.cli connect-bank
+# Connect a real bank account with Plaid (opens browser, handles token exchange)
+python -m backend.app.api.cli connect-bank --provider plaid
+
+# Connect a real bank account with Teller (opens browser, handles token exchange)
+python -m backend.app.api.cli connect-bank --provider teller
 
 # Use a different port if 8080 is busy
-python -m backend.app.api.cli connect-bank --port 3000
+python -m backend.app.api.cli connect-bank --provider teller --port 3000
 
-# Create sandbox test item (for testing only)
+# Create sandbox test item (Plaid only, for testing)
 python -m backend.app.api.cli get-token
 ```
 
 #### Data Synchronization
 ```bash
 # Sync data from Plaid
-python -m backend.app.api.cli sync --access-token <token> --item-id <item_id>
+python -m backend.app.api.cli sync --provider plaid --access-token <token> --item-id <item_id>
+
+# Sync data from Teller
+python -m backend.app.api.cli sync --provider teller --access-token <token> --item-id <item_id>
 
 # Sync only transactions (skip holdings)
-python -m backend.app.api.cli sync --access-token <token> --item-id <item_id> --no-holdings
+python -m backend.app.api.cli sync --provider teller --access-token <token> --item-id <item_id> --no-holdings
 ```
 
 #### 🤖 AI-Powered Analysis (⭐ Recommended)
@@ -418,11 +453,22 @@ The application supports multiple financial data providers through a flexible pr
 
 See [PROVIDER_ARCHITECTURE.md](PROVIDER_ARCHITECTURE.md) for details on the provider system.
 
-### Plaid Integration
+### Provider Integration
 
-The application uses Plaid to securely connect to financial institutions:
+The application supports multiple financial data providers through a flexible abstraction layer:
 
-**Supported Data:**
+**Plaid Integration:**
+- Industry standard, comprehensive API
+- Supports investments and banking
+- See [PLAID_SETUP.md](PLAID_SETUP.md) for setup
+
+**Teller Integration:**
+- Modern REST API
+- Free tier available for personal use
+- Certificate-based authentication (mTLS)
+- See [TELLER_SETUP.md](TELLER_SETUP.md) for setup
+
+**Supported Data (both providers):**
 - Accounts (checking, savings, investment, credit cards)
 - Balances (current, available, limit)
 - Investment holdings (stocks, bonds, mutual funds, etc.)
@@ -432,9 +478,11 @@ The application uses Plaid to securely connect to financial institutions:
 
 **Supported Institutions:**
 - Charles Schwab (primary target)
-- Any Plaid-supported institution (banks, brokerages, credit cards)
+- Any provider-supported institution (banks, brokerages, credit cards)
 
 > Access is read-only, OAuth-based, and user-revocable at any time.
+
+See [PROVIDER_ARCHITECTURE.md](PROVIDER_ARCHITECTURE.md) for details on the provider system.
 
 ---
 
@@ -558,11 +606,14 @@ pytest tests/test_analytics/test_net_worth.py -v
 
 - **[SETUP.md](SETUP.md)** - Detailed setup instructions
 - **[PLAID_SETUP.md](PLAID_SETUP.md)** - Plaid account setup guide
+- **[TELLER_SETUP.md](TELLER_SETUP.md)** - Teller account setup guide
+- **[PROVIDER_ARCHITECTURE.md](PROVIDER_ARCHITECTURE.md)** - Provider abstraction architecture
 - **[GET_TOKEN.md](GET_TOKEN.md)** - Getting Plaid access tokens
 - **[TRANSACTION_ANALYSIS.md](TRANSACTION_ANALYSIS.md)** - Transaction data model details
 - **[EXPORT_GUIDE.md](EXPORT_GUIDE.md)** - Guide for exporting data to use with LLMs (ChatGPT, Claude, etc.)
 - **[NATURAL_QUERIES.md](NATURAL_QUERIES.md)** - Complete guide to natural language queries
 - **[LUNCH_DETECTION.md](LUNCH_DETECTION.md)** - Smart lunch detection with confidence scoring
+- **[AI_INTEGRATION.md](AI_INTEGRATION.md)** - Complete AI integration guide with use cases and examples
 
 ---
 
@@ -580,15 +631,18 @@ pytest tests/test_analytics/test_net_worth.py -v
 ## 📊 Current Project Status
 
 ### ✅ Completed
-- **Core Infrastructure**: Database models, Plaid integration, data synchronization
+- **Core Infrastructure**: Database models, provider abstraction layer, data synchronization
+- **Provider Support**: Plaid and Teller integration with unified interface
+- **Bank Account Linking**: CLI commands for connecting accounts via Plaid or Teller
 - **Analytics Layer**: Net worth, performance, income, expenses, allocation calculations
 - **Natural Language Interface**: Intent routing, query handlers, smart lunch detection
+- **AI Integration**: Multi-provider LLM support with intelligent data selection
 - **CLI Interface**: Comprehensive command-line interface with rich formatting
 - **Test Suite**: 59+ tests covering analytics and query processing
-- **Documentation**: README, setup guides, feature documentation
+- **Documentation**: README, setup guides, feature documentation, provider architecture
 
 ### 🚧 In Progress
-- **Plaid Bank Linking**: Waiting for Plaid access approval
+- **Teller Sync Implementation**: Complete Teller data synchronization
 - **Test Refinement**: Minor test adjustments for edge cases
 - **API Endpoints**: REST API implementation (FastAPI)
 
@@ -601,7 +655,7 @@ pytest tests/test_analytics/test_net_worth.py -v
 - **Mobile App**: React Native or Flutter mobile interface
 
 ### 🎯 Next Steps
-1. Complete Plaid bank account linking
+1. Complete Teller data synchronization implementation
 2. Add REST API endpoints for web/mobile access
 3. Enhance transaction categorization with ML
 4. Implement budget and goal tracking
@@ -640,7 +694,7 @@ This is a simple, permissive license that allows you to use, modify, and distrib
 
 ## 🙏 Acknowledgments
 
-- Built with [Plaid](https://plaid.com) for secure financial data access
+- Built with [Plaid](https://plaid.com) and [Teller](https://teller.io) for secure financial data access
 - Uses [SQLAlchemy](https://www.sqlalchemy.org/) for database management
 - Powered by [FastAPI](https://fastapi.tiangolo.com/) for the REST API
 - CLI formatting with [Rich](https://rich.readthedocs.io/)

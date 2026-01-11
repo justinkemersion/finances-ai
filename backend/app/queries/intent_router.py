@@ -37,21 +37,24 @@ class IntentRouter:
     
     PERFORMANCE_PATTERNS = [
         r"performance",
+        r"performing",
         r"how\s+did\s+(my\s+)?portfolio\s+do",
+        r"how\s+is\s+(my\s+)?portfolio\s+performing",
         r"return",
         r"gain",
         r"loss",
         r"profit",
-        r"how\s+much\s+did\s+i\s+(make|earn|lose)",
+        r"how\s+much\s+did\s+i\s+(make|lose)",  # Removed "earn" - that's income-specific
     ]
     
     ALLOCATION_PATTERNS = [
         r"allocation",
+        r"allocated",
         r"breakdown",
         r"distribution",
         r"what\s+am\s+i\s+invested\s+in",
-        r"holdings",
-        r"top\s+holdings",
+        r"how\s+is\s+(my\s+)?portfolio\s+allocated",
+        r"top\s+holdings",  # Removed "holdings" - that's for HOLDINGS intent
     ]
     
     HOLDINGS_PATTERNS = [
@@ -59,6 +62,8 @@ class IntentRouter:
         r"stocks",
         r"securities",
         r"what\s+do\s+i\s+own",
+        r"investments",
+        r"list\s+(?:my\s+)?investments",
     ]
     
     TRANSACTIONS_PATTERNS = [
@@ -93,9 +98,11 @@ class IntentRouter:
     
     SPENDING_CATEGORY_PATTERNS = [
         r"spent\s+on\s+(\w+)",
-        r"(\w+)\s+spending",
+        r"spending\s+on\s+(\w+)",  # More specific - "spending on X"
+        r"(\w+)\s+spending",  # "X spending" - but check that X is not "my", "the", etc.
         r"how\s+much\s+(?:did\s+i\s+)?spend\s+on\s+(\w+)",
-        r"(\w+)\s+expenses",
+        r"how\s+much\s+for\s+(\w+)",  # "how much for gas"
+        r"(\w+)\s+expenses",  # "X expenses" - but check that X is not "my", "the", etc.
         r"(\w+)\s+costs",
     ]
     
@@ -117,9 +124,11 @@ class IntentRouter:
     
     MERCHANT_PATTERNS = [
         r"spent\s+at\s+(\w+)",
-        r"(\w+)\s+transactions",
+        r"(\w+)\s+transactions\s+at",  # More specific - requires "at" after transactions
+        r"transactions\s+at\s+(\w+)",  # Alternative pattern
         r"how\s+much\s+at\s+(\w+)",
         r"purchases\s+from\s+(\w+)",
+        r"spending\s+at\s+(\w+)",
     ]
     
     LUNCH_PATTERNS = [
@@ -159,14 +168,35 @@ class IntentRouter:
     GAS_FOOD_THRESHOLD = 15.0  # Gas station purchases > $15 are likely gas, not food
     
     TIME_PATTERNS = [
-        (r"last\s+month", lambda: (date.today() - timedelta(days=30), date.today())),
-        (r"this\s+month", lambda: (date.today().replace(day=1), date.today())),
-        (r"last\s+(\d+)\s+months?", lambda m: (date.today() - timedelta(days=int(m.group(1)) * 30), date.today())),
-        (r"last\s+year", lambda: (date.today() - timedelta(days=365), date.today())),
-        (r"this\s+year", lambda: (date.today().replace(month=1, day=1), date.today())),
-        (r"last\s+(\d+)\s+days?", lambda m: (date.today() - timedelta(days=int(m.group(1))), date.today())),
-        (r"yesterday", lambda: (date.today() - timedelta(days=1), date.today() - timedelta(days=1))),
         (r"today", lambda: (date.today(), date.today())),
+        (r"yesterday", lambda: (date.today() - timedelta(days=1), date.today() - timedelta(days=1))),
+        (r"this\s+week", lambda: (
+            date.today() - timedelta(days=date.today().weekday()),
+            date.today()
+        )),
+        (r"last\s+week", lambda: (
+            date.today() - timedelta(days=date.today().weekday() + 7),
+            date.today() - timedelta(days=date.today().weekday() + 1)
+        )),
+        (r"this\s+month", lambda: (date.today().replace(day=1), date.today())),
+        (r"last\s+month", lambda: (
+            (date.today().replace(day=1) - timedelta(days=1)).replace(day=1),
+            date.today().replace(day=1) - timedelta(days=1)
+        )),
+        (r"past\s+(\d+)\s+days?", lambda m: (
+            date.today() - timedelta(days=int(m.group(1))),
+            date.today()
+        )),
+        (r"last\s+(\d+)\s+days?", lambda m: (
+            date.today() - timedelta(days=int(m.group(1))),
+            date.today()
+        )),
+        (r"last\s+(\d+)\s+months?", lambda m: (
+            (date.today() - timedelta(days=int(m.group(1)) * 30)).replace(day=1),
+            date.today()
+        )),
+        (r"last\s+year", lambda: (date.today().replace(month=1, day=1) - timedelta(days=365), date.today())),
+        (r"this\s+year", lambda: (date.today().replace(month=1, day=1), date.today())),
     ]
     
     # Common spending category aliases
@@ -201,52 +231,60 @@ class IntentRouter:
             if re.search(pattern, query_lower):
                 return QueryIntent.LUNCH
         
-        # Spending category patterns (very specific)
-        for pattern in cls.SPENDING_CATEGORY_PATTERNS:
+        # Cash flow (check before spending category - "income vs expenses" is cash flow)
+        for pattern in cls.CASH_FLOW_PATTERNS:
             if re.search(pattern, query_lower):
-                return QueryIntent.SPENDING_CATEGORY
+                return QueryIntent.CASH_FLOW
         
-        # Merchant patterns (very specific)
+        # Merchant patterns (very specific - must capture merchant name)
         for pattern in cls.MERCHANT_PATTERNS:
-            if re.search(pattern, query_lower):
-                return QueryIntent.MERCHANT
+            match = re.search(pattern, query_lower)
+            if match and match.groups():  # Only match if it captures a merchant
+                merchant = match.group(1).lower()
+                # Exclude common words that aren't merchants
+                if merchant not in ["my", "the", "show", "list", "all", "recent"]:
+                    return QueryIntent.MERCHANT
+        
+        # Spending category patterns (very specific - must capture category)
+        for pattern in cls.SPENDING_CATEGORY_PATTERNS:
+            match = re.search(pattern, query_lower)
+            if match and match.groups():  # Only match if it captures a category
+                category = match.group(1).lower()
+                # Exclude common words that aren't categories
+                if category not in ["my", "the", "show", "what", "how", "all", "total"]:
+                    return QueryIntent.SPENDING_CATEGORY
         
         # Dividends (specific investment query)
         for pattern in cls.DIVIDENDS_PATTERNS:
             if re.search(pattern, query_lower):
                 return QueryIntent.DIVIDENDS
         
-        # Cash flow (specific financial query)
-        for pattern in cls.CASH_FLOW_PATTERNS:
-            if re.search(pattern, query_lower):
-                return QueryIntent.CASH_FLOW
-        
-        # Performance (investment-focused)
-        for pattern in cls.PERFORMANCE_PATTERNS:
-            if re.search(pattern, query_lower):
-                return QueryIntent.PERFORMANCE
-        
-        # Income (general)
+        # Income (check before performance - more specific)
         for pattern in cls.INCOME_PATTERNS:
             if re.search(pattern, query_lower):
                 return QueryIntent.INCOME
         
-        # Expenses (general)
+        # Expenses (check before performance - more specific)
         for pattern in cls.EXPENSES_PATTERNS:
             if re.search(pattern, query_lower):
                 return QueryIntent.EXPENSES
         
-        # Allocation (investment-focused)
-        for pattern in cls.ALLOCATION_PATTERNS:
+        # Performance (investment-focused - check after income/expenses)
+        for pattern in cls.PERFORMANCE_PATTERNS:
             if re.search(pattern, query_lower):
-                return QueryIntent.ALLOCATION
+                return QueryIntent.PERFORMANCE
         
-        # Holdings (investment-focused)
+        # Holdings (check before allocation - more specific)
         for pattern in cls.HOLDINGS_PATTERNS:
             if re.search(pattern, query_lower):
                 return QueryIntent.HOLDINGS
         
-        # Transactions (general)
+        # Allocation (investment-focused - check after holdings)
+        for pattern in cls.ALLOCATION_PATTERNS:
+            if re.search(pattern, query_lower):
+                return QueryIntent.ALLOCATION
+        
+        # Transactions (general - check after merchant)
         for pattern in cls.TRANSACTIONS_PATTERNS:
             if re.search(pattern, query_lower):
                 return QueryIntent.TRANSACTIONS
@@ -275,14 +313,22 @@ class IntentRouter:
             match = re.search(pattern, query_lower)
             if match:
                 try:
+                    import inspect
+                    # Check if handler needs the match object
                     if callable(handler):
-                        return handler()
+                        sig = inspect.signature(handler)
+                        if len(sig.parameters) > 0:
+                            # Handler needs match object
+                            return handler(match)
+                        else:
+                            # Handler doesn't need arguments
+                            return handler()
                     else:
                         return handler(match)
                 except Exception:
                     continue
         
-        return None
+        return (None, None)
     
     @classmethod
     def extract_account_filter(cls, query: str) -> Optional[str]:
@@ -296,8 +342,21 @@ class IntentRouter:
             Account ID or name if found, None otherwise
         """
         # This is a basic implementation - could be enhanced with NLP
-        # For now, just look for account names in quotes or after "in account"
-        account_match = re.search(r'in\s+account\s+"?([^"]+)"?', query.lower())
+        # For now, just look for account names in quotes or after "in account" or "from account"
+        query_lower = query.lower()
+        
+        # Try "in account" pattern
+        account_match = re.search(r'in\s+account\s+"?([^"]+)"?', query_lower)
+        if account_match:
+            return account_match.group(1)
+        
+        # Try "from [account name] account" pattern (e.g., "from checking account")
+        account_match = re.search(r'from\s+(\w+)\s+account', query_lower)
+        if account_match:
+            return account_match.group(1)
+        
+        # Try "in [account name]" pattern (e.g., "in savings", "in checking account")
+        account_match = re.search(r'in\s+(\w+)(?:\s+account)?', query_lower)
         if account_match:
             return account_match.group(1)
         

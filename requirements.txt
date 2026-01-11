@@ -4,7 +4,7 @@ pydantic>=2.0.0
 
 # Financial Data Providers
 plaid-python>=11.0.0
-# teller-python>=1.0.0  # Uncomment when ready to use Teller
+requests>=2.31.0  # Required for Teller integration (direct HTTP client)
 
 # Database
 sqlalchemy>=2.0.0
